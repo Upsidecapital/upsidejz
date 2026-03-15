@@ -3,537 +3,1029 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Market Briefing — 08:00 MYT</title>
+  <title>UpsideFX — Daily Market Briefing</title>
 
-  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-
-  <!-- marked.js — markdown renderer -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
   <style>
-    /* ── Reset & tokens ───────────────────────────────────────────── */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  /* ── Tokens ─────────────────────────────────────────────────────── */
+  :root {
+    --navy:       #0f1f38;
+    --navy2:      #172135;
+    --navy3:      #1e2d47;
+    --bg:         #f0f4f8;
+    --bg2:        #e4eaf2;
+    --card:       #ffffff;
+    --card2:      #f8fafc;
+    --border:     #dde5ef;
+    --border2:    #c8d4e3;
+    --text:       #0f1e35;
+    --text2:      #4a6080;
+    --text3:      #8aa3bf;
+    --blue:       #2563eb;
+    --blue-light: #eff6ff;
+    --gold:       #d97706;
+    --gold-light: #fffbeb;
+    --green:      #059669;
+    --green-light:#ecfdf5;
+    --red:        #dc2626;
+    --red-light:  #fef2f2;
+    --orange:     #ea580c;
+    --orange-light:#fff7ed;
+    --purple:     #7c3aed;
+    --purple-light:#f5f3ff;
+    --shadow-xs:  0 1px 2px rgba(15,31,56,.06);
+    --shadow-sm:  0 2px 8px rgba(15,31,56,.08), 0 1px 3px rgba(15,31,56,.06);
+    --shadow:     0 4px 16px rgba(15,31,56,.1), 0 2px 6px rgba(15,31,56,.06);
+    --shadow-lg:  0 12px 32px rgba(15,31,56,.14), 0 4px 12px rgba(15,31,56,.08);
+    --r:          14px;
+    --r-sm:       8px;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Inter', sans-serif;
+  }
 
-    :root {
-      --bg:          #080d18;
-      --bg2:         #0d1428;
-      --bg3:         #111827;
-      --border:      #1e2d45;
-      --border2:     #253652;
-      --text:        #dce8f5;
-      --text2:       #7e9bbf;
-      --text3:       #4a6080;
-      --gold:        #f0b429;
-      --gold2:       #fde68a;
-      --green:       #22c55e;
-      --green-dim:   #16a34a44;
-      --red:         #ef4444;
-      --red-dim:     #dc262644;
-      --blue:        #3b82f6;
-      --blue-dim:    #1d4ed844;
-      --mono:        'JetBrains Mono', monospace;
-      --sans:        'Inter', sans-serif;
-    }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    html, body {
-      height: 100%;
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--sans);
-      font-size: 14px;
-      line-height: 1.6;
-    }
+  html { font-size: 15px; }
 
-    /* ── Layout ───────────────────────────────────────────────────── */
-    .app {
-      display: grid;
-      grid-template-rows: 52px 1fr;
-      grid-template-columns: 240px 1fr;
-      height: 100vh;
-      overflow: hidden;
-    }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
 
-    /* ── Header ───────────────────────────────────────────────────── */
-    header {
-      grid-column: 1 / -1;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 20px;
-      background: var(--bg2);
-      border-bottom: 1px solid var(--border);
-      gap: 16px;
-    }
+  /* ── App shell ───────────────────────────────────────────────────── */
+  .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 15px;
-      font-weight: 600;
-      letter-spacing: .3px;
-      color: var(--gold);
-      white-space: nowrap;
-    }
-    .logo span { color: var(--text2); font-weight: 400; font-size: 12px; }
+  /* ── Header ──────────────────────────────────────────────────────── */
+  header {
+    background: var(--navy);
+    padding: 0 28px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-shrink: 0;
+    box-shadow: 0 2px 12px rgba(0,0,0,.25);
+    position: relative;
+    z-index: 10;
+  }
 
-    .header-center {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex: 1;
-      justify-content: center;
-    }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-right: 32px;
+    text-decoration: none;
+  }
+  .logo-icon {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--gold), #f59e0b);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    box-shadow: 0 2px 8px rgba(217,119,6,.4);
+  }
+  .logo-text {
+    font-size: 17px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -.2px;
+  }
+  .logo-sub {
+    font-size: 10px;
+    font-weight: 400;
+    color: rgba(255,255,255,.4);
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    display: block;
+    line-height: 1;
+    margin-top: 2px;
+  }
 
-    #status-badge {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: var(--text2);
-      background: var(--bg3);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 4px 12px;
-    }
-    #status-badge .dot {
-      width: 7px; height: 7px;
-      border-radius: 50%;
-      background: var(--text3);
-      transition: background .3s;
-    }
-    #status-badge.active .dot { background: var(--gold); animation: pulse 1.2s infinite; }
-    #status-badge.done   .dot { background: var(--green); }
-    #status-badge.error  .dot { background: var(--red); }
+  .header-nav {
+    display: flex;
+    gap: 2px;
+    flex: 1;
+  }
 
-    @keyframes pulse {
-      0%,100% { opacity:1; } 50% { opacity:.3; }
-    }
+  .nav-tab {
+    padding: 6px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255,255,255,.5);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all .15s;
+    font-family: var(--sans);
+  }
+  .nav-tab:hover { color: rgba(255,255,255,.85); background: rgba(255,255,255,.07); }
+  .nav-tab.active { color: #fff; background: rgba(255,255,255,.12); }
 
-    .header-right { display: flex; align-items: center; gap: 10px; }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
 
-    #myt-clock {
-      font-family: var(--mono);
-      font-size: 12px;
-      color: var(--text2);
-      background: var(--bg3);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 4px 10px;
-    }
+  .myt-clock {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: rgba(255,255,255,.5);
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 6px;
+    padding: 5px 10px;
+    letter-spacing: .5px;
+  }
 
-    button.btn {
-      display: flex; align-items: center; gap: 6px;
-      font-family: var(--sans); font-size: 13px; font-weight: 500;
-      padding: 6px 14px;
-      border-radius: 6px;
-      border: 1px solid var(--border2);
-      background: var(--bg3);
-      color: var(--text);
-      cursor: pointer;
-      transition: all .15s;
-    }
-    button.btn:hover  { border-color: var(--gold); color: var(--gold); }
-    button.btn:active { opacity: .7; }
-    button.btn:disabled { opacity: .4; cursor: not-allowed; }
+  /* ── Status pill ─────────────────────────────────────────────────── */
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.1);
+    color: rgba(255,255,255,.6);
+    transition: all .3s;
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: rgba(255,255,255,.3);
+    flex-shrink: 0;
+    transition: background .3s;
+  }
+  .status-pill.generating .status-dot { background: var(--gold); animation: glow 1.2s ease-in-out infinite; }
+  .status-pill.generating { border-color: rgba(217,119,6,.3); color: var(--gold); }
+  .status-pill.complete   .status-dot { background: var(--green); }
+  .status-pill.complete   { border-color: rgba(5,150,105,.3); color: #6ee7b7; }
+  .status-pill.error      .status-dot { background: var(--red); }
 
-    button.btn-primary {
-      background: #1a2a0d;
-      border-color: var(--green);
-      color: var(--green);
-    }
-    button.btn-primary:hover { background: var(--green-dim); }
+  @keyframes glow {
+    0%,100% { box-shadow: 0 0 0 0 rgba(217,119,6,.7); }
+    50%      { box-shadow: 0 0 0 4px rgba(217,119,6,0); }
+  }
 
-    /* ── Sidebar ──────────────────────────────────────────────────── */
-    aside {
-      background: var(--bg2);
-      border-right: 1px solid var(--border);
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-    }
+  /* ── Generate button ─────────────────────────────────────────────── */
+  .btn-generate {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 18px;
+    background: linear-gradient(135deg, var(--blue), #1d4ed8);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--sans);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all .15s;
+    box-shadow: 0 2px 8px rgba(37,99,235,.4);
+    letter-spacing: -.1px;
+  }
+  .btn-generate:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 4px 14px rgba(37,99,235,.45); }
+  .btn-generate:active { transform: translateY(0); }
+  .btn-generate:disabled { opacity: .5; cursor: not-allowed; transform: none; }
 
-    .sidebar-title {
-      padding: 14px 16px 10px;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 1.2px;
-      text-transform: uppercase;
-      color: var(--text3);
-      border-bottom: 1px solid var(--border);
-    }
+  /* ── Body layout ─────────────────────────────────────────────────── */
+  .app-body {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+  }
 
-    .briefing-list { flex: 1; overflow-y: auto; }
+  /* ── Sidebar ─────────────────────────────────────────────────────── */
+  .sidebar {
+    width: 260px;
+    flex-shrink: 0;
+    background: #fff;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
 
-    .briefing-item {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      padding: 10px 16px;
-      border-bottom: 1px solid var(--border);
-      cursor: pointer;
-      transition: background .15s;
-    }
-    .briefing-item:hover    { background: var(--bg3); }
-    .briefing-item.active   { background: var(--bg3); border-left: 2px solid var(--gold); }
-    .briefing-item .bi-date { font-size: 13px; font-weight: 500; color: var(--text); }
-    .briefing-item .bi-meta { font-size: 11px; color: var(--text3); font-family: var(--mono); }
-    .briefing-item .bi-status {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: .5px;
-      text-transform: uppercase;
-      padding: 1px 6px;
-      border-radius: 3px;
-      display: inline-block;
-      width: fit-content;
-    }
-    .status-complete   { background:#14532d33; color: var(--green); }
-    .status-generating { background:#78350f33; color: var(--gold);  }
-    .status-error      { background:#7f1d1d33; color: var(--red);   }
+  .sidebar-header {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-header h3 {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text3);
+  }
 
-    /* ── Main content ─────────────────────────────────────────────── */
-    main {
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-    }
+  .sidebar-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 10px;
+  }
 
-    /* Tool activity bar */
-    #tool-bar {
-      display: none;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 24px;
-      background: #0a1525;
-      border-bottom: 1px solid var(--border);
-      font-size: 12px;
-      color: var(--gold);
-    }
-    #tool-bar.visible { display: flex; }
-    #tool-bar .spinner {
-      width: 14px; height: 14px;
-      border: 2px solid var(--border2);
-      border-top-color: var(--gold);
-      border-radius: 50%;
-      animation: spin .7s linear infinite;
-      flex-shrink: 0;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
+  .hist-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background .12s;
+    margin-bottom: 2px;
+    border: 1px solid transparent;
+  }
+  .hist-item:hover  { background: var(--bg); }
+  .hist-item.active {
+    background: var(--blue-light);
+    border-color: rgba(37,99,235,.15);
+  }
+  .hist-item-icon {
+    width: 36px; height: 36px;
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+    background: var(--bg2);
+  }
+  .hist-item.active .hist-item-icon { background: rgba(37,99,235,.12); }
+  .hist-item-body { flex: 1; min-width: 0; }
+  .hist-item-date {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hist-item.active .hist-item-date { color: var(--blue); }
+  .hist-item-time {
+    font-size: 11px;
+    color: var(--text3);
+    font-family: var(--mono);
+    margin-top: 2px;
+  }
 
-    /* Empty / loading states */
-    .placeholder {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      flex: 1;
-      gap: 12px;
-      color: var(--text3);
-      font-size: 14px;
-      min-height: 300px;
-    }
-    .placeholder .icon { font-size: 40px; }
+  .hist-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    letter-spacing: .3px;
+    flex-shrink: 0;
+  }
+  .hist-badge.complete   { background: var(--green-light);  color: var(--green); }
+  .hist-badge.generating { background: var(--gold-light);   color: var(--gold);  }
+  .hist-badge.error      { background: var(--red-light);    color: var(--red);   }
 
-    /* Briefing content */
-    #content-wrap {
-      padding: 28px 32px 48px;
-      max-width: 940px;
-      width: 100%;
-      margin: 0 auto;
-    }
+  .sidebar-empty {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 8px;
+    padding: 40px 20px;
+    color: var(--text3);
+    font-size: 13px;
+    text-align: center;
+  }
+  .sidebar-empty .empty-icon { font-size: 28px; }
 
-    /* ── Markdown styles ──────────────────────────────────────────── */
-    .md h1, .md h2, .md h3, .md h4 {
-      font-family: var(--sans);
-      color: var(--gold);
-      margin: 1.4em 0 .5em;
-      line-height: 1.3;
-    }
-    .md h1 { font-size: 18px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
-    .md h2 { font-size: 16px; }
-    .md h3 { font-size: 14px; color: var(--gold2); }
-    .md h4 { font-size: 13px; color: var(--text2); }
+  /* ── Main content ─────────────────────────────────────────────────── */
+  .main-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 28px 32px 48px;
+  }
 
-    .md p { margin: .6em 0; color: var(--text); }
-    .md strong { color: var(--gold2); font-weight: 600; }
-    .md em { color: var(--text2); }
+  /* ── Tool activity toast ─────────────────────────────────────────── */
+  .tool-toast {
+    position: fixed;
+    top: 72px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--navy);
+    color: #fff;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-8px);
+    opacity: 0;
+    transition: all .25s cubic-bezier(.34,1.56,.64,1);
+    pointer-events: none;
+    z-index: 100;
+    max-width: 300px;
+  }
+  .tool-toast.visible { opacity: 1; transform: translateY(0); }
+  .tool-toast-spinner {
+    width: 15px; height: 15px;
+    border: 2px solid rgba(255,255,255,.2);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-    .md ul, .md ol { padding-left: 1.4em; margin: .5em 0; }
-    .md li { margin: .25em 0; }
+  /* ── Empty / placeholder ─────────────────────────────────────────── */
+  .placeholder-view {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 55vh;
+    gap: 16px;
+    text-align: center;
+  }
+  .placeholder-icon {
+    width: 72px; height: 72px;
+    border-radius: 20px;
+    background: linear-gradient(135deg, var(--navy), var(--navy3));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px;
+    box-shadow: var(--shadow);
+  }
+  .placeholder-title { font-size: 20px; font-weight: 700; color: var(--text); }
+  .placeholder-sub   { font-size: 14px; color: var(--text2); max-width: 320px; line-height: 1.5; }
 
-    .md hr {
-      border: none;
-      border-top: 1px solid var(--border2);
-      margin: 20px 0;
-    }
+  /* ── Generating view ─────────────────────────────────────────────── */
+  .generating-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 24px;
+    padding: 20px 24px;
+    background: linear-gradient(135deg, var(--navy), var(--navy3));
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+  }
+  .gen-icon {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    background: rgba(217,119,6,.15);
+    border: 1px solid rgba(217,119,6,.25);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+  }
+  .gen-info h2 { font-size: 17px; font-weight: 700; color: #fff; }
+  .gen-info p  { font-size: 13px; color: rgba(255,255,255,.5); margin-top: 3px; }
 
-    .md blockquote {
-      border-left: 3px solid var(--gold);
-      padding-left: 12px;
-      color: var(--text2);
-      margin: .8em 0;
-    }
+  /* streaming text area */
+  .stream-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 28px 32px;
+    box-shadow: var(--shadow-sm);
+    font-size: 14px;
+    line-height: 1.75;
+    color: var(--text);
+    min-height: 200px;
+    white-space: pre-wrap;
+    font-family: var(--mono);
+  }
 
-    .md code {
-      font-family: var(--mono);
-      font-size: 12px;
-      background: var(--bg3);
-      border: 1px solid var(--border);
-      border-radius: 3px;
-      padding: 1px 5px;
-      color: var(--gold2);
-    }
+  /* blinking cursor */
+  .cursor {
+    display: inline-block;
+    width: 2px; height: 1.1em;
+    background: var(--blue);
+    vertical-align: text-bottom;
+    border-radius: 1px;
+    animation: blink .8s step-end infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
 
-    .md pre {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 14px 16px;
-      overflow-x: auto;
-      margin: .8em 0;
-    }
-    .md pre code {
-      background: none; border: none; padding: 0;
-      font-size: 12px; color: var(--text);
-    }
+  /* ── Section cards (post-processing) ────────────────────────────── */
+  .section-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    margin-bottom: 16px;
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    animation: fadeUp .3s ease both;
+  }
+  @keyframes fadeUp {
+    from { opacity:0; transform: translateY(12px); }
+    to   { opacity:1; transform: translateY(0); }
+  }
 
-    /* Tables */
-    .md table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 1em 0;
-      font-size: 13px;
-      font-family: var(--mono);
-    }
-    .md th {
-      background: var(--bg3);
-      color: var(--gold);
-      font-size: 11px;
-      letter-spacing: .8px;
-      text-transform: uppercase;
-      padding: 8px 12px;
-      border: 1px solid var(--border2);
-      text-align: left;
-      white-space: nowrap;
-    }
-    .md td {
-      padding: 7px 12px;
-      border: 1px solid var(--border);
-      color: var(--text);
-      vertical-align: top;
-    }
-    .md tr:hover td { background: #ffffff06; }
+  .section-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 24px;
+    background: var(--card2);
+    border-bottom: 1px solid var(--border);
+  }
+  .section-card-icon {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .section-card-title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--text2);
+  }
+  .section-card-body { padding: 20px 24px; }
 
-    /* Inline colour hints for directional words */
-    .md .bullish { color: var(--green) !important; }
-    .md .bearish { color: var(--red)   !important; }
+  /* Hero date card */
+  .hero-card {
+    background: linear-gradient(135deg, var(--navy) 0%, #1a3560 100%);
+    border-radius: var(--r);
+    padding: 24px 28px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+  }
+  .hero-date { font-size: 13px; color: rgba(255,255,255,.5); font-weight: 500; margin-bottom: 4px; }
+  .hero-title { font-size: 22px; font-weight: 800; color: #fff; letter-spacing: -.3px; }
+  .hero-sub { font-size: 13px; color: rgba(255,255,255,.4); margin-top: 4px; }
+  .hero-badge {
+    padding: 6px 16px;
+    background: rgba(5,150,105,.15);
+    border: 1px solid rgba(5,150,105,.25);
+    color: #6ee7b7;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 20px;
+    letter-spacing: .3px;
+    white-space: nowrap;
+  }
+  .hero-badge.generating {
+    background: rgba(217,119,6,.15);
+    border-color: rgba(217,119,6,.25);
+    color: #fcd34d;
+  }
 
-    /* Streaming cursor */
-    #cursor {
-      display: inline-block;
-      width: 2px; height: 1em;
-      background: var(--gold);
-      vertical-align: text-bottom;
-      animation: blink .8s step-end infinite;
-    }
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  /* ── Markdown content styles ─────────────────────────────────────── */
+  .md { font-size: 14px; line-height: 1.75; color: var(--text); }
 
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+  .md h1,.md h2,.md h3,.md h4 {
+    font-weight: 700; line-height: 1.3;
+    color: var(--text);
+    margin: 1.3em 0 .5em;
+  }
+  .md h1 { font-size: 20px; }
+  .md h2 { font-size: 16px; }
+  .md h3 { font-size: 14px; }
+  .md h4 { font-size: 13px; color: var(--text2); }
+
+  .md p { margin: .55em 0; }
+  .md ul,.md ol { padding-left: 1.5em; margin: .5em 0; }
+  .md li { margin: .3em 0; }
+  .md strong { font-weight: 600; color: var(--text); }
+  .md em { color: var(--text2); }
+  .md hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+
+  .md a { color: var(--blue); text-decoration: none; }
+  .md a:hover { text-decoration: underline; }
+
+  .md code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 5px;
+    color: var(--navy);
+  }
+
+  .md pre {
+    background: var(--navy);
+    border-radius: 8px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    margin: 10px 0;
+  }
+  .md pre code {
+    background: none; border: none; padding: 0;
+    color: #e2e8f0; font-size: 12.5px;
+  }
+
+  /* Tables */
+  .md table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin: 10px 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .md th {
+    background: var(--bg2);
+    color: var(--text2);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .7px;
+    text-transform: uppercase;
+    padding: 9px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .md td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    line-height: 1.5;
+  }
+  .md tr:last-child td { border-bottom: none; }
+  .md tr:hover td { background: var(--bg); }
+
+  .md blockquote {
+    border-left: 3px solid var(--blue);
+    padding: 8px 14px;
+    color: var(--text2);
+    background: var(--blue-light);
+    border-radius: 0 6px 6px 0;
+    margin: 10px 0;
+  }
+
+  /* ── Signal badges ─────────────────────────────────────────────── */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .4px;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .badge::before { font-size: 10px; }
+
+  .badge-bullish { background: var(--green-light); color: var(--green); }
+  .badge-bullish::before { content: '▲ '; }
+
+  .badge-bearish { background: var(--red-light); color: var(--red); }
+  .badge-bearish::before { content: '▼ '; }
+
+  .badge-neutral { background: var(--bg2); color: var(--text2); }
+  .badge-neutral::before { content: '◆ '; }
+
+  .badge-buy  { background: var(--green-light); color: var(--green); }
+  .badge-sell { background: var(--red-light);   color: var(--red);   }
+  .badge-wait { background: var(--gold-light);  color: var(--gold);  }
+
+  .badge-high   { background: #fef2f2; color: #b91c1c; }
+  .badge-medium { background: var(--gold-light); color: #92400e; }
+  .badge-low    { background: var(--green-light); color: #065f46; }
+
+  .badge-conviction-high   { background: var(--navy); color: #fff; }
+  .badge-conviction-medium { background: var(--bg2);  color: var(--text2); }
+
+  /* ── Pair card (special treatment) ──────────────────────────────── */
+  .pair-card {
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    overflow: hidden;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow-xs);
+    animation: fadeUp .35s ease both;
+  }
+  .pair-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    background: var(--card2);
+    border-bottom: 1px solid var(--border);
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .pair-name {
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--text);
+    letter-spacing: -.3px;
+    font-family: var(--mono);
+  }
+  .pair-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .pair-card-body { padding: 20px; }
+
+  .tv-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--blue);
+    text-decoration: none;
+    background: var(--blue-light);
+    padding: 3px 10px;
+    border-radius: 5px;
+    font-weight: 500;
+  }
+  .tv-link:hover { background: #dbeafe; }
+
+  /* ── Scrollbar ────────────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
   </style>
 </head>
 <body>
 <div class="app">
 
-  <!-- ── Header ── -->
+  <!-- ── App Header ── -->
   <header>
-    <div class="logo">
-      📊 MARKET BRIEFING
-      <span>08:00 MYT · Forex &amp; Commodities</span>
-    </div>
-
-    <div class="header-center">
-      <div id="status-badge">
-        <div class="dot"></div>
-        <span id="status-text">Ready</span>
+    <a class="logo" href="#">
+      <div class="logo-icon">📊</div>
+      <div>
+        <div class="logo-text">UpsideFX</div>
+        <span class="logo-sub">Market Briefing</span>
       </div>
-    </div>
+    </a>
+
+    <nav class="header-nav">
+      <button class="nav-tab active" onclick="switchTab('today')">Today</button>
+      <button class="nav-tab"        onclick="switchTab('history')">History</button>
+    </nav>
 
     <div class="header-right">
-      <div id="myt-clock">--:--:-- MYT</div>
-      <button class="btn btn-primary" id="btn-generate" onclick="triggerGeneration()">
+      <div class="status-pill" id="status-pill">
+        <div class="status-dot"></div>
+        <span id="status-label">Ready</span>
+      </div>
+      <div class="myt-clock" id="myt-clock">--:--:-- MYT</div>
+      <button class="btn-generate" id="btn-generate" onclick="triggerGeneration()">
         ⚡ Generate Now
       </button>
     </div>
   </header>
 
-  <!-- ── Sidebar ── -->
-  <aside>
-    <div class="sidebar-title">Past Briefings</div>
-    <div class="briefing-list" id="briefing-list">
-      <div class="placeholder" style="min-height:120px;font-size:12px;">No briefings yet</div>
-    </div>
-  </aside>
+  <!-- ── Tool toast ── -->
+  <div class="tool-toast" id="tool-toast">
+    <div class="tool-toast-spinner"></div>
+    <span id="tool-toast-text">Searching the web…</span>
+  </div>
 
-  <!-- ── Main ── -->
-  <main id="main">
-    <div id="tool-bar">
-      <div class="spinner"></div>
-      <span id="tool-text">Searching the web…</span>
-    </div>
+  <!-- ── Body ── -->
+  <div class="app-body">
 
-    <div id="content-area">
-      <div class="placeholder" id="placeholder">
-        <div class="icon">📋</div>
-        <div>No briefing loaded.</div>
-        <div style="font-size:12px;">Click <strong style="color:var(--gold)">Generate Now</strong> or select a past briefing.</div>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header"><h3>Past Briefings</h3></div>
+      <div class="sidebar-list" id="sidebar-list">
+        <div class="sidebar-empty">
+          <div class="empty-icon">📋</div>
+          <div>No briefings yet</div>
+        </div>
       </div>
-    </div>
-  </main>
+    </aside>
 
+    <!-- Main -->
+    <div class="main-content" id="main-content">
+
+      <!-- Today tab -->
+      <div id="tab-today">
+        <div id="today-view">
+          <div class="placeholder-view">
+            <div class="placeholder-icon">📊</div>
+            <div class="placeholder-title">No briefing loaded</div>
+            <div class="placeholder-sub">
+              Click <strong>Generate Now</strong> to fetch a live briefing using
+              real-time market data, or select a past briefing from the sidebar.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- History tab -->
+      <div id="tab-history" style="display:none">
+        <div id="history-view">
+          <div class="placeholder-view">
+            <div class="placeholder-icon">📁</div>
+            <div class="placeholder-title">Briefing History</div>
+            <div class="placeholder-sub">Your generated briefings will appear here.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
 </div>
 
 <script>
-/* ── Globals ──────────────────────────────────────────────────────────────── */
-let currentBriefingId = null;
-let rawText = '';         // accumulates streamed markdown text
-let renderTimer = null;   // debounce render calls
-let activeSource = null;  // EventSource
-
+/* ── Config ───────────────────────────────────────────────────────────────── */
 marked.setOptions({ breaks: true, gfm: true });
 
-/* ── MYT clock ────────────────────────────────────────────────────────────── */
+let currentId   = null;
+let rawText     = '';
+let activeSSE   = null;
+let renderTimer = null;
+
+const SECTION_META = {
+  'MACRO OVERVIEW':            { icon: '🌍', color: '#2563eb' },
+  'TODAY\'S ECONOMIC CALENDAR':{ icon: '📅', color: '#7c3aed' },
+  'ECONOMIC CALENDAR':         { icon: '📅', color: '#7c3aed' },
+  'WATCHLIST':                 { icon: '👁️',  color: '#059669' },
+  'PAIRS TO MONITOR':          { icon: '👁️',  color: '#059669' },
+  'PAIRS TO AVOID':            { icon: '🚫', color: '#dc2626' },
+  'END OF BRIEFING':           { icon: '✅', color: '#059669' },
+};
+
+/* ── Clock ────────────────────────────────────────────────────────────────── */
 function updateClock() {
-  const el = document.getElementById('myt-clock');
-  const now = new Date();
-  const myt = new Intl.DateTimeFormat('en-MY', {
-    timeZone: 'Asia/Kuala_Lumpur',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-  }).format(now);
-  el.textContent = myt + ' MYT';
+  const s = new Intl.DateTimeFormat('en-MY', {
+    timeZone:'Asia/Kuala_Lumpur',
+    hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false
+  }).format(new Date());
+  document.getElementById('myt-clock').textContent = s + ' MYT';
 }
 setInterval(updateClock, 1000);
 updateClock();
 
-/* ── Render helpers ───────────────────────────────────────────────────────── */
-function renderMarkdown(text, withCursor = false) {
-  const wrap = document.getElementById('content-area');
-  const html = marked.parse(text);
-  wrap.innerHTML = `<div id="content-wrap"><div class="md">${html}${withCursor ? '<span id="cursor"></span>' : ''}</div></div>`;
-  colourDirectional();
+/* ── Tab switching ────────────────────────────────────────────────────────── */
+function switchTab(tab) {
+  document.querySelectorAll('.nav-tab').forEach((t,i) =>
+    t.classList.toggle('active', (i===0&&tab==='today')||(i===1&&tab==='history')));
+  document.getElementById('tab-today').style.display   = tab==='today'   ? '' : 'none';
+  document.getElementById('tab-history').style.display = tab==='history' ? '' : 'none';
+  if (tab === 'history') renderHistoryTab();
 }
 
-function colourDirectional() {
-  const el = document.getElementById('content-area');
-  if (!el) return;
-  el.querySelectorAll('strong, td, li').forEach(node => {
-    const t = node.textContent;
-    if (/\bBULLISH\b/.test(t)) node.classList.add('bullish');
-    if (/\bBEARISH\b/.test(t)) node.classList.add('bearish');
-  });
+/* ── Status pill ──────────────────────────────────────────────────────────── */
+function setStatus(cls, text) {
+  const pill = document.getElementById('status-pill');
+  pill.className = 'status-pill' + (cls ? ' ' + cls : '');
+  document.getElementById('status-label').textContent = text;
 }
 
-function scheduleRender(text, cursor) {
-  clearTimeout(renderTimer);
-  renderTimer = setTimeout(() => renderMarkdown(text, cursor), 40);
-}
-
-/* ── Status badge ─────────────────────────────────────────────────────────── */
-function setStatus(state, text) {
-  const badge = document.getElementById('status-badge');
-  const label = document.getElementById('status-text');
-  badge.className = state ? `${state}` : '';
-  badge.classList.add('');   // reset
-  if (state) badge.classList.add(state);
-  label.textContent = text;
-}
-
-/* ── Tool activity bar ────────────────────────────────────────────────────── */
-const toolLabels = {
-  web_search: '🔍 Searching the web…',
-  web_fetch:  '🌐 Fetching page…',
-};
+/* ── Tool toast ───────────────────────────────────────────────────────────── */
+const toolLabels = { web_search: '🔍 Searching the web…', web_fetch: '🌐 Fetching data…' };
 function showTool(tool) {
-  const bar = document.getElementById('tool-bar');
-  document.getElementById('tool-text').textContent = toolLabels[tool] || 'Working…';
-  bar.classList.add('visible');
+  const t = document.getElementById('tool-toast');
+  document.getElementById('tool-toast-text').textContent = toolLabels[tool] || '⚙️ Working…';
+  t.classList.add('visible');
 }
-function hideTool() {
-  document.getElementById('tool-bar').classList.remove('visible');
-}
+function hideTool() { document.getElementById('tool-toast').classList.remove('visible'); }
 
 /* ── Sidebar ──────────────────────────────────────────────────────────────── */
-async function loadBriefingList() {
-  try {
-    const res = await fetch('/api/briefings');
-    const list = await res.json();
-    const container = document.getElementById('briefing-list');
+async function loadSidebar() {
+  const res  = await fetch('/api/briefings');
+  const list = await res.json();
+  const el   = document.getElementById('sidebar-list');
 
-    if (!list.length) {
-      container.innerHTML = '<div class="placeholder" style="min-height:120px;font-size:12px;">No briefings yet</div>';
-      return;
-    }
-
-    container.innerHTML = list.map(b => {
-      const d = new Date(b.generated_at + 'Z');
-      const timeStr = new Intl.DateTimeFormat('en-MY', {
-        timeZone: 'Asia/Kuala_Lumpur',
-        hour: '2-digit', minute: '2-digit', hour12: false
-      }).format(d);
-      const cls = b.id === currentBriefingId ? 'briefing-item active' : 'briefing-item';
-      return `
-        <div class="${cls}" data-id="${b.id}" onclick="loadBriefing(${b.id})">
-          <div class="bi-date">${b.date}</div>
-          <div class="bi-meta">Generated ${timeStr} MYT</div>
-          <span class="bi-status status-${b.status}">${b.status}</span>
-        </div>`;
-    }).join('');
-  } catch (e) {
-    console.error('Failed to load briefing list', e);
+  if (!list.length) {
+    el.innerHTML = `<div class="sidebar-empty"><div class="empty-icon">📋</div><div>No briefings yet</div></div>`;
+    return;
   }
+
+  el.innerHTML = list.map(b => {
+    const d = new Date(b.generated_at + 'Z');
+    const t = new Intl.DateTimeFormat('en-MY', {
+      timeZone:'Asia/Kuala_Lumpur', hour:'2-digit', minute:'2-digit', hour12:false
+    }).format(d);
+    const active = b.id === currentId ? ' active' : '';
+    const icon   = b.status === 'complete' ? '📄' : b.status === 'generating' ? '⏳' : '❌';
+    return `
+      <div class="hist-item${active}" data-id="${b.id}" onclick="loadBriefing(${b.id})">
+        <div class="hist-item-icon">${icon}</div>
+        <div class="hist-item-body">
+          <div class="hist-item-date">${b.date}</div>
+          <div class="hist-item-time">Generated ${t} MYT</div>
+        </div>
+        <span class="hist-badge ${b.status}">${b.status}</span>
+      </div>`;
+  }).join('');
 }
 
-/* ── Load a completed briefing ────────────────────────────────────────────── */
-async function loadBriefing(id) {
-  if (activeSource) { activeSource.close(); activeSource = null; }
+/* ── History tab ──────────────────────────────────────────────────────────── */
+async function renderHistoryTab() {
+  const res  = await fetch('/api/briefings');
+  const list = await res.json();
+  const view = document.getElementById('history-view');
 
-  currentBriefingId = id;
-  setStatus('', 'Loading…');
-  document.getElementById('tool-bar').classList.remove('visible');
-  document.getElementById('content-area').innerHTML =
-    '<div class="placeholder"><div class="icon">⏳</div><div>Loading…</div></div>';
+  if (!list.length) {
+    view.innerHTML = `<div class="placeholder-view">
+      <div class="placeholder-icon">📁</div>
+      <div class="placeholder-title">No briefings yet</div>
+      <div class="placeholder-sub">Generate your first briefing to see history here.</div>
+    </div>`;
+    return;
+  }
 
-  // Highlight sidebar item
-  document.querySelectorAll('.briefing-item').forEach(el => {
-    el.classList.toggle('active', +el.dataset.id === id);
+  view.innerHTML = list.map((b, i) => {
+    const d   = new Date(b.generated_at + 'Z');
+    const fmt = new Intl.DateTimeFormat('en-MY', {
+      timeZone:'Asia/Kuala_Lumpur',
+      weekday:'long', year:'numeric', month:'long', day:'numeric',
+      hour:'2-digit', minute:'2-digit', hour12:false
+    }).format(d);
+    return `
+      <div class="section-card" style="animation-delay:${i*40}ms">
+        <div class="section-card-header">
+          <div class="section-card-icon" style="background:#f0f4f8; font-size:18px">📄</div>
+          <div>
+            <div class="section-card-title">${b.date}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px">${fmt} MYT</div>
+          </div>
+          <span class="hist-badge ${b.status}" style="margin-left:auto">${b.status}</span>
+          ${b.status==='complete' ? `<button onclick="loadBriefing(${b.id});switchTab('today')"
+            style="margin-left:8px;padding:5px 14px;background:var(--blue);color:#fff;border:none;
+                   border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--sans)">
+            View →</button>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+/* ── Briefing markdown → app cards ────────────────────────────────────────── */
+function buildSectionedView(text, meta) {
+  const view = document.getElementById('today-view');
+
+  // Hero card
+  const now = new Intl.DateTimeFormat('en-MY', {
+    timeZone:'Asia/Kuala_Lumpur',
+    weekday:'long', year:'numeric', month:'long', day:'numeric'
+  }).format(new Date());
+
+  view.innerHTML = `
+    <div class="hero-card">
+      <div>
+        <div class="hero-date">Daily Market Briefing</div>
+        <div class="hero-title">${meta?.date || now}</div>
+        <div class="hero-sub">Generated ${meta?.time || ''} MYT · Forex &amp; Commodities</div>
+      </div>
+      <div class="hero-badge">✓ Complete</div>
+    </div>
+    <div id="sections-container"></div>`;
+
+  const container = document.getElementById('sections-container');
+
+  // Split raw text into sections by lines starting with ▌ or 📅
+  const lines    = text.split('\n');
+  const sections = [];
+  let cur        = { key: '', header: '', lines: [] };
+
+  for (const line of lines) {
+    const stripped = line.replace(/^[▌\s]+/, '').trim();
+
+    // Match section headers
+    if (line.match(/^▌\s+/) || line.match(/^📅\s+DAILY/)) {
+      if (cur.header || cur.lines.length) sections.push(cur);
+      const key = Object.keys(SECTION_META).find(k => stripped.toUpperCase().includes(k)) || '';
+      cur = { key, header: stripped, lines: [] };
+    } else if (line.match(/^[─━═]{8,}$/)) {
+      // Skip decorative dividers
+    } else {
+      cur.lines.push(line);
+    }
+  }
+  if (cur.header || cur.lines.length) sections.push(cur);
+
+  // Render each section as a card
+  sections.forEach((sec, idx) => {
+    if (!sec.header && !sec.lines.join('').trim()) return;
+
+    const meta   = SECTION_META[sec.key] || { icon: '📌', color: '#6b7280' };
+    const card   = document.createElement('div');
+    card.className = 'section-card';
+    card.style.animationDelay = (idx * 60) + 'ms';
+
+    const bodyMd = sec.lines.join('\n');
+    const bodyHtml = bodyMd.trim() ? marked.parse(bodyMd) : '';
+
+    // Detect if this section contains pair analysis
+    const isPairSection = sec.key.includes('WATCHLIST') || sec.key.includes('PAIRS TO MONITOR');
+
+    card.innerHTML = `
+      <div class="section-card-header">
+        <div class="section-card-icon" style="background:${meta.color}22; color:${meta.color}">
+          ${meta.icon}
+        </div>
+        <div class="section-card-title">${sec.header}</div>
+      </div>
+      <div class="section-card-body">
+        <div class="md">${isPairSection ? buildPairCards(bodyMd) : bodyHtml}</div>
+      </div>`;
+
+    container.appendChild(card);
   });
 
-  // Open SSE — the backend serves from DB if already complete
-  openStream(id);
+  // Post-process badges
+  container.querySelectorAll('td, p, li, h3, h4').forEach(el => {
+    el.innerHTML = el.innerHTML
+      .replace(/\bBULLISH\b/g, '<span class="badge badge-bullish">BULLISH</span>')
+      .replace(/\bBEARISH\b/g, '<span class="badge badge-bearish">BEARISH</span>')
+      .replace(/\bNEUTRAL\b/g, '<span class="badge badge-neutral">NEUTRAL</span>')
+      .replace(/(?<!\w)BUY(?!\w)/g,  '<span class="badge badge-buy">BUY</span>')
+      .replace(/(?<!\w)SELL(?!\w)/g, '<span class="badge badge-sell">SELL</span>')
+      .replace(/(?<!\w)WAIT(?!\w)/g, '<span class="badge badge-wait">WAIT</span>')
+      .replace(/\bHIGH NEWS RISK\b/g, '<span class="badge badge-high">⚠ HIGH NEWS RISK</span>')
+      .replace(/\b(CONVICTION: HIGH|HIGH CONVICTION)\b/g, '<span class="badge badge-conviction-high">HIGH</span>')
+      .replace(/\b(CONVICTION: MEDIUM|MEDIUM CONVICTION)\b/g, '<span class="badge badge-conviction-medium">MEDIUM</span>')
+      .replace(/\b(IMPACT: HIGH)\b/g,   '<span class="badge badge-high">HIGH</span>')
+      .replace(/\b(IMPACT: MEDIUM)\b/g, '<span class="badge badge-medium">MEDIUM</span>')
+      .replace(/\b(IMPACT: LOW)\b/g,    '<span class="badge badge-low">LOW</span>');
+  });
+
+  // Fix TradingView links
+  container.querySelectorAll('a[href*="tradingview"]').forEach(a => {
+    a.className = 'tv-link';
+    a.target    = '_blank';
+    a.innerHTML = '📈 Open Chart ↗';
+  });
 }
 
-/* ── SSE stream handler ───────────────────────────────────────────────────── */
-function openStream(briefingId) {
-  if (activeSource) { activeSource.close(); }
+/* ── Build pair mini-cards within the Watchlist section ───────────────────── */
+function buildPairCards(md) {
+  // Split on lines that look like "PAIR | BIAS | CONVICTION"
+  const pairPattern = /^([A-Z]{3}\/[A-Z]{3}|USOIL|UKOIL|NGAS|XAU\/USD|XAG\/USD)\s*\|/m;
+  const parts = md.split(/\n(?=[A-Z]{3}[\/\|])/);
 
+  if (parts.length <= 1) return marked.parse(md);
+
+  return parts.map(block => {
+    const firstLine = block.split('\n')[0];
+    if (!pairPattern.test(firstLine)) return `<div class="md">${marked.parse(block)}</div>`;
+
+    const cols  = firstLine.split('|').map(s => s.trim());
+    const pair  = cols[0] || '';
+    const bias  = (cols[1] || '').replace('BIAS:', '').trim();
+    const conv  = (cols[2] || '').replace('CONVICTION:', '').trim();
+
+    const biasClass = bias.toLowerCase().includes('bull') ? 'badge-bullish'
+                    : bias.toLowerCase().includes('bear') ? 'badge-bearish'
+                    : 'badge-neutral';
+
+    const rest = block.split('\n').slice(1).join('\n');
+    return `
+      <div class="pair-card">
+        <div class="pair-card-header">
+          <span class="pair-name">${pair}</span>
+          <div class="pair-badges">
+            <span class="badge ${biasClass}">${bias}</span>
+            <span class="badge badge-conviction-${conv.toLowerCase()}">${conv}</span>
+          </div>
+        </div>
+        <div class="pair-card-body md">${marked.parse(rest)}</div>
+      </div>`;
+  }).join('');
+}
+
+/* ── Load a past briefing ─────────────────────────────────────────────────── */
+async function loadBriefing(id) {
+  if (activeSSE) { activeSSE.close(); activeSSE = null; }
+  currentId = id;
+  setStatus('', 'Loading…');
+  hideTool();
+
+  document.querySelectorAll('.hist-item').forEach(el =>
+    el.classList.toggle('active', +el.dataset.id === id));
+
+  // Show spinner while connecting
+  document.getElementById('today-view').innerHTML = `
+    <div class="placeholder-view">
+      <div class="placeholder-icon">⏳</div>
+      <div class="placeholder-title">Loading briefing…</div>
+    </div>`;
+
+  openSSE(id);
+}
+
+/* ── Open SSE stream ──────────────────────────────────────────────────────── */
+function openSSE(id) {
+  if (activeSSE) activeSSE.close();
   rawText = '';
-  const src = new EventSource(`/api/stream/${briefingId}`);
-  activeSource = src;
+  const src = new EventSource(`/api/stream/${id}`);
+  activeSSE = src;
 
-  src.onmessage = function(e) {
-    const event = JSON.parse(e.data);
-
-    switch (event.type) {
+  src.onmessage = e => {
+    const ev = JSON.parse(e.data);
+    switch (ev.type) {
       case 'tool_start':
-        setStatus('active', 'Researching…');
-        showTool(event.tool);
+        setStatus('generating', 'Researching…');
+        showTool(ev.tool);
         break;
 
       case 'tool_end':
@@ -541,71 +1033,104 @@ function openStream(briefingId) {
         break;
 
       case 'delta':
-        rawText += event.text;
-        scheduleRender(rawText, true);
+        rawText += ev.text;
+        scheduleStreamRender();
         break;
 
       case 'done':
         clearTimeout(renderTimer);
-        renderMarkdown(rawText, false);
-        setStatus('done', 'Complete');
         hideTool();
-        src.close();
-        activeSource = null;
-        loadBriefingList();
+        setStatus('complete', 'Complete');
+        buildSectionedView(rawText, extractMeta(rawText));
+        src.close(); activeSSE = null;
+        loadSidebar();
         break;
 
-      case 'complete':
-        // Served from DB in one shot
-        rawText = event.content;
-        renderMarkdown(rawText, false);
-        setStatus('done', 'Complete');
-        src.close();
-        activeSource = null;
+      case 'complete':          // served from DB
+        rawText = ev.content;
+        hideTool();
+        setStatus('complete', 'Complete');
+        buildSectionedView(rawText, extractMeta(rawText));
+        src.close(); activeSSE = null;
         break;
 
       case 'error':
-        setStatus('error', 'Error');
         hideTool();
-        document.getElementById('content-area').innerHTML =
-          `<div class="placeholder"><div class="icon">⚠️</div><div style="color:var(--red)">${event.message}</div></div>`;
-        src.close();
-        activeSource = null;
-        loadBriefingList();
+        setStatus('error', 'Error');
+        document.getElementById('today-view').innerHTML = `
+          <div class="placeholder-view">
+            <div class="placeholder-icon">⚠️</div>
+            <div class="placeholder-title">Generation failed</div>
+            <div class="placeholder-sub">${ev.message}</div>
+          </div>`;
+        src.close(); activeSSE = null;
+        loadSidebar();
         break;
     }
   };
 
-  src.onerror = function() {
+  src.onerror = () => {
     if (src.readyState === EventSource.CLOSED) return;
     setStatus('error', 'Connection lost');
     hideTool();
-    src.close();
-    activeSource = null;
+    src.close(); activeSSE = null;
   };
 }
 
-/* ── Trigger a new generation ─────────────────────────────────────────────── */
+/* ── Stream render (shows raw text while generating) ─────────────────────── */
+function scheduleStreamRender() {
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(() => {
+    const view = document.getElementById('today-view');
+    // On first delta, replace placeholder with generating layout
+    if (!view.querySelector('.generating-header')) {
+      view.innerHTML = `
+        <div class="generating-header">
+          <div class="gen-icon">✍️</div>
+          <div class="gen-info">
+            <h2>Generating Briefing…</h2>
+            <p>Claude is researching live market data and building your briefing</p>
+          </div>
+        </div>
+        <div class="stream-card" id="stream-out"></div>`;
+    }
+    const out = document.getElementById('stream-out');
+    if (out) {
+      out.textContent = rawText;
+      const cur = document.createElement('span');
+      cur.className = 'cursor';
+      out.appendChild(cur);
+    }
+  }, 30);
+}
+
+/* ── Extract date/time from briefing text ─────────────────────────────────── */
+function extractMeta(text) {
+  const m = text.match(/DAILY MARKET BRIEFING\s*[—–-]\s*([^|]+)\|?\s*([0-9:]+\s*MYT)?/i);
+  return m ? { date: (m[1] || '').trim(), time: (m[2] || '').trim() } : null;
+}
+
+/* ── Trigger generation ───────────────────────────────────────────────────── */
 async function triggerGeneration() {
   const btn = document.getElementById('btn-generate');
   btn.disabled = true;
-  setStatus('active', 'Starting generation…');
+  setStatus('generating', 'Starting…');
+  rawText = '';
+
+  document.getElementById('today-view').innerHTML = `
+    <div class="placeholder-view">
+      <div class="placeholder-icon" style="animation: spin 2s linear infinite">⚙️</div>
+      <div class="placeholder-title">Initialising…</div>
+    </div>`;
 
   try {
     const res = await fetch('/api/generate', { method: 'POST' });
     const { briefing_id } = await res.json();
-    currentBriefingId = briefing_id;
-
-    rawText = '';
-    document.getElementById('content-area').innerHTML =
-      '<div class="placeholder"><div class="icon">✍️</div><div>Generating briefing…</div></div>';
-    document.getElementById('tool-bar').classList.remove('visible');
-
-    await loadBriefingList();
-    openStream(briefing_id);
-
+    currentId = briefing_id;
+    await loadSidebar();
+    openSSE(briefing_id);
   } catch (err) {
-    setStatus('error', 'Failed to start');
+    setStatus('error', 'Failed');
     console.error(err);
   } finally {
     btn.disabled = false;
@@ -614,27 +1139,26 @@ async function triggerGeneration() {
 
 /* ── Init ─────────────────────────────────────────────────────────────────── */
 async function init() {
-  await loadBriefingList();
-
-  // Auto-load the latest complete briefing on startup
+  await loadSidebar();
   try {
-    const res = await fetch('/api/briefings');
+    const res  = await fetch('/api/briefings');
     const list = await res.json();
+
+    // Attach to any active generation first
+    const gen = list.find(b => b.status === 'generating');
+    if (gen) {
+      currentId = gen.id;
+      rawText   = '';
+      setStatus('generating', 'Generating…');
+      await loadSidebar();
+      openSSE(gen.id);
+      return;
+    }
+
+    // Otherwise load latest complete
     const latest = list.find(b => b.status === 'complete');
-    if (latest) {
-      loadBriefing(latest.id);
-    }
-    // If something is currently generating, attach to it
-    const generating = list.find(b => b.status === 'generating');
-    if (generating) {
-      currentBriefingId = generating.id;
-      rawText = '';
-      setStatus('active', 'Resuming stream…');
-      openStream(generating.id);
-    }
-  } catch (e) {
-    console.error('Init error', e);
-  }
+    if (latest) loadBriefing(latest.id);
+  } catch(e) { console.error(e); }
 }
 
 init();
