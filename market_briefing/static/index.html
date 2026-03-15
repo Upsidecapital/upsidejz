@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Market Briefing — 08:00 MYT</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- marked.js — markdown renderer -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <style>
+    /* ── Reset & tokens ───────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #080d18;
+      --bg2:         #0d1428;
+      --bg3:         #111827;
+      --border:      #1e2d45;
+      --border2:     #253652;
+      --text:        #dce8f5;
+      --text2:       #7e9bbf;
+      --text3:       #4a6080;
+      --gold:        #f0b429;
+      --gold2:       #fde68a;
+      --green:       #22c55e;
+      --green-dim:   #16a34a44;
+      --red:         #ef4444;
+      --red-dim:     #dc262644;
+      --blue:        #3b82f6;
+      --blue-dim:    #1d4ed844;
+      --mono:        'JetBrains Mono', monospace;
+      --sans:        'Inter', sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────────── */
+    .app {
+      display: grid;
+      grid-template-rows: 52px 1fr;
+      grid-template-columns: 240px 1fr;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────── */
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      gap: 16px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: .3px;
+      color: var(--gold);
+      white-space: nowrap;
+    }
+    .logo span { color: var(--text2); font-weight: 400; font-size: 12px; }
+
+    .header-center {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+      justify-content: center;
+    }
+
+    #status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text2);
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 12px;
+    }
+    #status-badge .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--text3);
+      transition: background .3s;
+    }
+    #status-badge.active .dot { background: var(--gold); animation: pulse 1.2s infinite; }
+    #status-badge.done   .dot { background: var(--green); }
+    #status-badge.error  .dot { background: var(--red); }
+
+    @keyframes pulse {
+      0%,100% { opacity:1; } 50% { opacity:.3; }
+    }
+
+    .header-right { display: flex; align-items: center; gap: 10px; }
+
+    #myt-clock {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text2);
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+    }
+
+    button.btn {
+      display: flex; align-items: center; gap: 6px;
+      font-family: var(--sans); font-size: 13px; font-weight: 500;
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border2);
+      background: var(--bg3);
+      color: var(--text);
+      cursor: pointer;
+      transition: all .15s;
+    }
+    button.btn:hover  { border-color: var(--gold); color: var(--gold); }
+    button.btn:active { opacity: .7; }
+    button.btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    button.btn-primary {
+      background: #1a2a0d;
+      border-color: var(--green);
+      color: var(--green);
+    }
+    button.btn-primary:hover { background: var(--green-dim); }
+
+    /* ── Sidebar ──────────────────────────────────────────────────── */
+    aside {
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar-title {
+      padding: 14px 16px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--text3);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .briefing-list { flex: 1; overflow-y: auto; }
+
+    .briefing-item {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .briefing-item:hover    { background: var(--bg3); }
+    .briefing-item.active   { background: var(--bg3); border-left: 2px solid var(--gold); }
+    .briefing-item .bi-date { font-size: 13px; font-weight: 500; color: var(--text); }
+    .briefing-item .bi-meta { font-size: 11px; color: var(--text3); font-family: var(--mono); }
+    .briefing-item .bi-status {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      padding: 1px 6px;
+      border-radius: 3px;
+      display: inline-block;
+      width: fit-content;
+    }
+    .status-complete   { background:#14532d33; color: var(--green); }
+    .status-generating { background:#78350f33; color: var(--gold);  }
+    .status-error      { background:#7f1d1d33; color: var(--red);   }
+
+    /* ── Main content ─────────────────────────────────────────────── */
+    main {
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Tool activity bar */
+    #tool-bar {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 24px;
+      background: #0a1525;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--gold);
+    }
+    #tool-bar.visible { display: flex; }
+    #tool-bar .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid var(--border2);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Empty / loading states */
+    .placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 12px;
+      color: var(--text3);
+      font-size: 14px;
+      min-height: 300px;
+    }
+    .placeholder .icon { font-size: 40px; }
+
+    /* Briefing content */
+    #content-wrap {
+      padding: 28px 32px 48px;
+      max-width: 940px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* ── Markdown styles ──────────────────────────────────────────── */
+    .md h1, .md h2, .md h3, .md h4 {
+      font-family: var(--sans);
+      color: var(--gold);
+      margin: 1.4em 0 .5em;
+      line-height: 1.3;
+    }
+    .md h1 { font-size: 18px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    .md h2 { font-size: 16px; }
+    .md h3 { font-size: 14px; color: var(--gold2); }
+    .md h4 { font-size: 13px; color: var(--text2); }
+
+    .md p { margin: .6em 0; color: var(--text); }
+    .md strong { color: var(--gold2); font-weight: 600; }
+    .md em { color: var(--text2); }
+
+    .md ul, .md ol { padding-left: 1.4em; margin: .5em 0; }
+    .md li { margin: .25em 0; }
+
+    .md hr {
+      border: none;
+      border-top: 1px solid var(--border2);
+      margin: 20px 0;
+    }
+
+    .md blockquote {
+      border-left: 3px solid var(--gold);
+      padding-left: 12px;
+      color: var(--text2);
+      margin: .8em 0;
+    }
+
+    .md code {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 1px 5px;
+      color: var(--gold2);
+    }
+
+    .md pre {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      margin: .8em 0;
+    }
+    .md pre code {
+      background: none; border: none; padding: 0;
+      font-size: 12px; color: var(--text);
+    }
+
+    /* Tables */
+    .md table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1em 0;
+      font-size: 13px;
+      font-family: var(--mono);
+    }
+    .md th {
+      background: var(--bg3);
+      color: var(--gold);
+      font-size: 11px;
+      letter-spacing: .8px;
+      text-transform: uppercase;
+      padding: 8px 12px;
+      border: 1px solid var(--border2);
+      text-align: left;
+      white-space: nowrap;
+    }
+    .md td {
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: top;
+    }
+    .md tr:hover td { background: #ffffff06; }
+
+    /* Inline colour hints for directional words */
+    .md .bullish { color: var(--green) !important; }
+    .md .bearish { color: var(--red)   !important; }
+
+    /* Streaming cursor */
+    #cursor {
+      display: inline-block;
+      width: 2px; height: 1em;
+      background: var(--gold);
+      vertical-align: text-bottom;
+      animation: blink .8s step-end infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ── -->
+  <header>
+    <div class="logo">
+      📊 MARKET BRIEFING
+      <span>08:00 MYT · Forex &amp; Commodities</span>
+    </div>
+
+    <div class="header-center">
+      <div id="status-badge">
+        <div class="dot"></div>
+        <span id="status-text">Ready</span>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <div id="myt-clock">--:--:-- MYT</div>
+      <button class="btn btn-primary" id="btn-generate" onclick="triggerGeneration()">
+        ⚡ Generate Now
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Sidebar ── -->
+  <aside>
+    <div class="sidebar-title">Past Briefings</div>
+    <div class="briefing-list" id="briefing-list">
+      <div class="placeholder" style="min-height:120px;font-size:12px;">No briefings yet</div>
+    </div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <main id="main">
+    <div id="tool-bar">
+      <div class="spinner"></div>
+      <span id="tool-text">Searching the web…</span>
+    </div>
+
+    <div id="content-area">
+      <div class="placeholder" id="placeholder">
+        <div class="icon">📋</div>
+        <div>No briefing loaded.</div>
+        <div style="font-size:12px;">Click <strong style="color:var(--gold)">Generate Now</strong> or select a past briefing.</div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+/* ── Globals ──────────────────────────────────────────────────────────────── */
+let currentBriefingId = null;
+let rawText = '';         // accumulates streamed markdown text
+let renderTimer = null;   // debounce render calls
+let activeSource = null;  // EventSource
+
+marked.setOptions({ breaks: true, gfm: true });
+
+/* ── MYT clock ────────────────────────────────────────────────────────────── */
+function updateClock() {
+  const el = document.getElementById('myt-clock');
+  const now = new Date();
+  const myt = new Intl.DateTimeFormat('en-MY', {
+    timeZone: 'Asia/Kuala_Lumpur',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).format(now);
+  el.textContent = myt + ' MYT';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+/* ── Render helpers ───────────────────────────────────────────────────────── */
+function renderMarkdown(text, withCursor = false) {
+  const wrap = document.getElementById('content-area');
+  const html = marked.parse(text);
+  wrap.innerHTML = `<div id="content-wrap"><div class="md">${html}${withCursor ? '<span id="cursor"></span>' : ''}</div></div>`;
+  colourDirectional();
+}
+
+function colourDirectional() {
+  const el = document.getElementById('content-area');
+  if (!el) return;
+  el.querySelectorAll('strong, td, li').forEach(node => {
+    const t = node.textContent;
+    if (/\bBULLISH\b/.test(t)) node.classList.add('bullish');
+    if (/\bBEARISH\b/.test(t)) node.classList.add('bearish');
+  });
+}
+
+function scheduleRender(text, cursor) {
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(() => renderMarkdown(text, cursor), 40);
+}
+
+/* ── Status badge ─────────────────────────────────────────────────────────── */
+function setStatus(state, text) {
+  const badge = document.getElementById('status-badge');
+  const label = document.getElementById('status-text');
+  badge.className = state ? `${state}` : '';
+  badge.classList.add('');   // reset
+  if (state) badge.classList.add(state);
+  label.textContent = text;
+}
+
+/* ── Tool activity bar ────────────────────────────────────────────────────── */
+const toolLabels = {
+  web_search: '🔍 Searching the web…',
+  web_fetch:  '🌐 Fetching page…',
+};
+function showTool(tool) {
+  const bar = document.getElementById('tool-bar');
+  document.getElementById('tool-text').textContent = toolLabels[tool] || 'Working…';
+  bar.classList.add('visible');
+}
+function hideTool() {
+  document.getElementById('tool-bar').classList.remove('visible');
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────────── */
+async function loadBriefingList() {
+  try {
+    const res = await fetch('/api/briefings');
+    const list = await res.json();
+    const container = document.getElementById('briefing-list');
+
+    if (!list.length) {
+      container.innerHTML = '<div class="placeholder" style="min-height:120px;font-size:12px;">No briefings yet</div>';
+      return;
+    }
+
+    container.innerHTML = list.map(b => {
+      const d = new Date(b.generated_at + 'Z');
+      const timeStr = new Intl.DateTimeFormat('en-MY', {
+        timeZone: 'Asia/Kuala_Lumpur',
+        hour: '2-digit', minute: '2-digit', hour12: false
+      }).format(d);
+      const cls = b.id === currentBriefingId ? 'briefing-item active' : 'briefing-item';
+      return `
+        <div class="${cls}" data-id="${b.id}" onclick="loadBriefing(${b.id})">
+          <div class="bi-date">${b.date}</div>
+          <div class="bi-meta">Generated ${timeStr} MYT</div>
+          <span class="bi-status status-${b.status}">${b.status}</span>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    console.error('Failed to load briefing list', e);
+  }
+}
+
+/* ── Load a completed briefing ────────────────────────────────────────────── */
+async function loadBriefing(id) {
+  if (activeSource) { activeSource.close(); activeSource = null; }
+
+  currentBriefingId = id;
+  setStatus('', 'Loading…');
+  document.getElementById('tool-bar').classList.remove('visible');
+  document.getElementById('content-area').innerHTML =
+    '<div class="placeholder"><div class="icon">⏳</div><div>Loading…</div></div>';
+
+  // Highlight sidebar item
+  document.querySelectorAll('.briefing-item').forEach(el => {
+    el.classList.toggle('active', +el.dataset.id === id);
+  });
+
+  // Open SSE — the backend serves from DB if already complete
+  openStream(id);
+}
+
+/* ── SSE stream handler ───────────────────────────────────────────────────── */
+function openStream(briefingId) {
+  if (activeSource) { activeSource.close(); }
+
+  rawText = '';
+  const src = new EventSource(`/api/stream/${briefingId}`);
+  activeSource = src;
+
+  src.onmessage = function(e) {
+    const event = JSON.parse(e.data);
+
+    switch (event.type) {
+      case 'tool_start':
+        setStatus('active', 'Researching…');
+        showTool(event.tool);
+        break;
+
+      case 'tool_end':
+        hideTool();
+        break;
+
+      case 'delta':
+        rawText += event.text;
+        scheduleRender(rawText, true);
+        break;
+
+      case 'done':
+        clearTimeout(renderTimer);
+        renderMarkdown(rawText, false);
+        setStatus('done', 'Complete');
+        hideTool();
+        src.close();
+        activeSource = null;
+        loadBriefingList();
+        break;
+
+      case 'complete':
+        // Served from DB in one shot
+        rawText = event.content;
+        renderMarkdown(rawText, false);
+        setStatus('done', 'Complete');
+        src.close();
+        activeSource = null;
+        break;
+
+      case 'error':
+        setStatus('error', 'Error');
+        hideTool();
+        document.getElementById('content-area').innerHTML =
+          `<div class="placeholder"><div class="icon">⚠️</div><div style="color:var(--red)">${event.message}</div></div>`;
+        src.close();
+        activeSource = null;
+        loadBriefingList();
+        break;
+    }
+  };
+
+  src.onerror = function() {
+    if (src.readyState === EventSource.CLOSED) return;
+    setStatus('error', 'Connection lost');
+    hideTool();
+    src.close();
+    activeSource = null;
+  };
+}
+
+/* ── Trigger a new generation ─────────────────────────────────────────────── */
+async function triggerGeneration() {
+  const btn = document.getElementById('btn-generate');
+  btn.disabled = true;
+  setStatus('active', 'Starting generation…');
+
+  try {
+    const res = await fetch('/api/generate', { method: 'POST' });
+    const { briefing_id } = await res.json();
+    currentBriefingId = briefing_id;
+
+    rawText = '';
+    document.getElementById('content-area').innerHTML =
+      '<div class="placeholder"><div class="icon">✍️</div><div>Generating briefing…</div></div>';
+    document.getElementById('tool-bar').classList.remove('visible');
+
+    await loadBriefingList();
+    openStream(briefing_id);
+
+  } catch (err) {
+    setStatus('error', 'Failed to start');
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ── Init ─────────────────────────────────────────────────────────────────── */
+async function init() {
+  await loadBriefingList();
+
+  // Auto-load the latest complete briefing on startup
+  try {
+    const res = await fetch('/api/briefings');
+    const list = await res.json();
+    const latest = list.find(b => b.status === 'complete');
+    if (latest) {
+      loadBriefing(latest.id);
+    }
+    // If something is currently generating, attach to it
+    const generating = list.find(b => b.status === 'generating');
+    if (generating) {
+      currentBriefingId = generating.id;
+      rawText = '';
+      setStatus('active', 'Resuming stream…');
+      openStream(generating.id);
+    }
+  } catch (e) {
+    console.error('Init error', e);
+  }
+}
+
+init();
+</script>
+</body>
+</html>
