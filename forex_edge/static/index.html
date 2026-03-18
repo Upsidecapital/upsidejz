@@ -1,0 +1,1179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Forex Edge Finder</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<style>
+  :root {
+    --bg-deep: #0a0e1a;
+    --bg-panel: #111827;
+    --bg-card: #1a2235;
+    --bg-card2: #1e293b;
+    --accent: #3b82f6;
+    --accent2: #6366f1;
+    --green: #00e676;
+    --green2: #69f0ae;
+    --red: #ff1744;
+    --red2: #ff6d6d;
+    --yellow: #ffd740;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --border: #1e3a5f;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg-deep); color: var(--text); font-family: 'Inter', system-ui, sans-serif; }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: var(--bg-deep); }
+  ::-webkit-scrollbar-thumb { background: #2d4a6e; border-radius: 3px; }
+
+  .sidebar { width: 220px; min-height: 100vh; background: var(--bg-panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; left: 0; top: 0; z-index: 100; }
+  .main { margin-left: 220px; min-height: 100vh; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 11px 20px; cursor: pointer; color: var(--text-dim); font-size: 0.875rem; transition: all 0.15s; border-left: 3px solid transparent; }
+  .nav-item:hover { background: var(--bg-card); color: var(--text); }
+  .nav-item.active { background: rgba(59,130,246,0.1); color: var(--accent); border-left-color: var(--accent); }
+  .nav-item i { width: 18px; text-align: center; }
+
+  .page { display: none; padding: 24px; }
+  .page.active { display: block; }
+
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .card-sm { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.5px; }
+  .badge-buy { background: rgba(0,230,118,0.15); color: var(--green); border: 1px solid rgba(0,230,118,0.3); }
+  .badge-sell { background: rgba(255,23,68,0.15); color: var(--red); border: 1px solid rgba(255,23,68,0.3); }
+  .badge-neutral { background: rgba(255,215,64,0.15); color: var(--yellow); border: 1px solid rgba(255,215,64,0.3); }
+  .badge-high { background: rgba(255,23,68,0.2); color: var(--red2); }
+  .badge-medium { background: rgba(255,215,64,0.2); color: var(--yellow); }
+  .badge-low { background: rgba(148,163,184,0.2); color: var(--text-dim); }
+
+  .gauge-container { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+  .score-ring { transform: rotate(-90deg); }
+
+  .signal-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .signal-row:last-child { border-bottom: none; }
+
+  .cot-bar { height: 8px; border-radius: 4px; background: var(--bg-card2); position: relative; overflow: hidden; }
+  .cot-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+
+  .progress { height: 6px; border-radius: 3px; background: var(--bg-card2); overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+
+  .ai-output { background: var(--bg-card2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; font-size: 0.875rem; line-height: 1.7; min-height: 120px; white-space: pre-wrap; }
+
+  .tab-btn { padding: 6px 16px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; background: transparent; color: var(--text-dim); border: 1px solid transparent; transition: all 0.15s; }
+  .tab-btn.active { background: rgba(59,130,246,0.15); color: var(--accent); border-color: rgba(59,130,246,0.3); }
+
+  .input-field { background: var(--bg-card2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 7px 12px; font-size: 0.875rem; width: 100%; outline: none; }
+  .input-field:focus { border-color: var(--accent); }
+  .btn { padding: 8px 18px; border-radius: 7px; font-size: 0.8rem; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-outline { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .btn-outline:hover { background: rgba(59,130,246,0.1); }
+  .btn-sm { padding: 5px 12px; font-size: 0.75rem; }
+
+  .header-bar { background: var(--bg-panel); border-bottom: 1px solid var(--border); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; }
+
+  .currency-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; cursor: pointer; transition: all 0.2s; }
+  .currency-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .currency-card.selected { border-color: var(--accent); background: rgba(59,130,246,0.05); }
+
+  .pair-row:hover { background: rgba(59,130,246,0.05); }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .pulse { animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { animation: spin 1s linear infinite; }
+
+  .tooltip-wrap { position: relative; }
+  .tooltip-text { display: none; position: absolute; bottom: 125%; left: 50%; transform: translateX(-50%); background: #1e293b; color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap; z-index: 200; border: 1px solid var(--border); }
+  .tooltip-wrap:hover .tooltip-text { display: block; }
+
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; animation: pulse 2s infinite; }
+</style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<aside class="sidebar">
+  <div style="padding: 20px 16px 16px; border-bottom: 1px solid var(--border);">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div style="width:34px;height:34px;background:linear-gradient(135deg,#3b82f6,#6366f1);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem;">📈</div>
+      <div>
+        <div style="font-weight:700;font-size:0.95rem;color:var(--text)">Forex Edge</div>
+        <div style="font-size:0.68rem;color:var(--text-dim)">COT Intelligence</div>
+      </div>
+    </div>
+  </div>
+
+  <nav style="flex:1;padding-top:8px;">
+    <div class="nav-item active" onclick="showPage('dashboard')">
+      <i class="fa-solid fa-gauge-high"></i> Dashboard
+    </div>
+    <div class="nav-item" onclick="showPage('cot')">
+      <i class="fa-solid fa-chart-bar"></i> COT Analysis
+    </div>
+    <div class="nav-item" onclick="showPage('signals')">
+      <i class="fa-solid fa-bolt"></i> Signal Scanner
+    </div>
+    <div class="nav-item" onclick="showPage('calendar')">
+      <i class="fa-solid fa-calendar-days"></i> Economic Calendar
+    </div>
+    <div class="nav-item" onclick="showPage('strength')">
+      <i class="fa-solid fa-ranking-star"></i> Currency Strength
+    </div>
+    <div class="nav-item" onclick="showPage('ai')">
+      <i class="fa-solid fa-robot"></i> AI Analysis
+    </div>
+    <div class="nav-item" onclick="showPage('settings')">
+      <i class="fa-solid fa-sliders"></i> Settings
+    </div>
+  </nav>
+
+  <div style="padding: 12px 16px; border-top: 1px solid var(--border); font-size: 0.72rem; color: var(--text-dim);">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+      <span class="live-dot"></span>
+      <span id="sidebar-time">Loading...</span>
+    </div>
+    <div id="sidebar-date" style="color:var(--text-dim);">—</div>
+  </div>
+</aside>
+
+<!-- ── Header ── -->
+<div class="main">
+<header class="header-bar">
+  <div style="display:flex;align-items:center;gap:16px;">
+    <span style="font-weight:600;font-size:1rem;" id="page-title">Dashboard</span>
+    <span id="data-status" style="font-size:0.75rem;color:var(--text-dim);"></span>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <button class="btn btn-outline btn-sm" onclick="refreshAll()" id="refresh-btn">
+      <i class="fa-solid fa-rotate-right"></i> Refresh Data
+    </button>
+    <button class="btn btn-primary btn-sm" onclick="showPage('ai')">
+      <i class="fa-solid fa-robot"></i> AI Analysis
+    </button>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════════════════════
+     PAGE: Dashboard
+══════════════════════════════════════════════════════════ -->
+<div class="page active" id="page-dashboard">
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;" id="currency-cards">
+    <!-- populated by JS -->
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <!-- Top Signals -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h3 style="font-size:0.9rem;font-weight:700;margin:0;">⚡ Top Signals</h3>
+        <button class="btn btn-outline btn-sm" onclick="showPage('signals')">View All</button>
+      </div>
+      <div id="top-signals-list">
+        <div style="text-align:center;color:var(--text-dim);padding:20px;font-size:0.8rem;">Loading signals...</div>
+      </div>
+    </div>
+
+    <!-- COT Index Overview -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h3 style="font-size:0.9rem;font-weight:700;margin:0;">📊 COT Index Overview</h3>
+        <button class="btn btn-outline btn-sm" onclick="showPage('cot')">Detailed</button>
+      </div>
+      <div id="cot-overview-list">
+        <div style="text-align:center;color:var(--text-dim);padding:20px;font-size:0.8rem;">Loading COT data...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Market Overview -->
+  <div class="card" style="margin-top:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h3 style="font-size:0.9rem;font-weight:700;margin:0;display:flex;align-items:center;gap:8px;">
+        <i class="fa-solid fa-robot" style="color:var(--accent)"></i> AI Market Overview
+      </h3>
+      <button class="btn btn-primary btn-sm" onclick="loadAiOverview()">
+        <i class="fa-solid fa-wand-magic-sparkles"></i> Generate
+      </button>
+    </div>
+    <div class="ai-output" id="ai-overview-output" style="color:var(--text-dim);">
+      Click "Generate" to get an AI-powered market overview based on current COT and fundamental data.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     PAGE: COT Analysis
+══════════════════════════════════════════════════════════ -->
+<div class="page" id="page-cot">
+  <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+    <button class="tab-btn active" id="cot-tab-EUR" onclick="selectCotCurrency('EUR')">EUR</button>
+    <button class="tab-btn" id="cot-tab-GBP" onclick="selectCotCurrency('GBP')">GBP</button>
+    <button class="tab-btn" id="cot-tab-JPY" onclick="selectCotCurrency('JPY')">JPY</button>
+    <button class="tab-btn" id="cot-tab-CHF" onclick="selectCotCurrency('CHF')">CHF</button>
+    <button class="tab-btn" id="cot-tab-CAD" onclick="selectCotCurrency('CAD')">CAD</button>
+    <button class="tab-btn" id="cot-tab-AUD" onclick="selectCotCurrency('AUD')">AUD</button>
+    <button class="tab-btn" id="cot-tab-NZD" onclick="selectCotCurrency('NZD')">NZD</button>
+    <button class="tab-btn" id="cot-tab-MXN" onclick="selectCotCurrency('MXN')">MXN</button>
+  </div>
+
+  <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;">
+    <!-- COT Stats Card -->
+    <div>
+      <div class="card" id="cot-stats-card">
+        <div style="text-align:center;color:var(--text-dim);padding:20px;font-size:0.8rem;">Select a currency</div>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="font-size:0.9rem;font-weight:700;margin:0;" id="cot-chart-title">Net Speculator Positions</h3>
+        <div style="display:flex;gap:8px;">
+          <button class="tab-btn active" id="chart-net" onclick="setCotChartType('net')">Net Position</button>
+          <button class="tab-btn" id="chart-index" onclick="setCotChartType('index')">COT Index</button>
+        </div>
+      </div>
+      <div style="position:relative;height:320px;">
+        <canvas id="cot-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- All currencies COT table -->
+  <div class="card" style="margin-top:16px;">
+    <h3 style="font-size:0.9rem;font-weight:700;margin:0 0 14px;">All Currencies COT Summary</h3>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:0.8rem;border-collapse:collapse;" id="cot-table">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);">
+            <th style="text-align:left;padding:8px 12px;color:var(--text-dim);font-weight:600;">Currency</th>
+            <th style="text-align:right;padding:8px 12px;color:var(--text-dim);font-weight:600;">Net Longs</th>
+            <th style="text-align:right;padding:8px 12px;color:var(--text-dim);font-weight:600;">COT Index</th>
+            <th style="text-align:right;padding:8px 12px;color:var(--text-dim);font-weight:600;">Wk Change</th>
+            <th style="text-align:center;padding:8px 12px;color:var(--text-dim);font-weight:600;">Bias</th>
+            <th style="text-align:left;padding:8px 12px;color:var(--text-dim);font-weight:600;">Index Bar</th>
+          </tr>
+        </thead>
+        <tbody id="cot-table-body">
+          <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-dim);">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     PAGE: Signal Scanner
+══════════════════════════════════════════════════════════ -->
+<div class="page" id="page-signals">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div style="display:flex;gap:8px;" id="signal-filter-btns">
+      <button class="tab-btn active" onclick="filterSignals('ALL')">All</button>
+      <button class="tab-btn" onclick="filterSignals('BUY')">Buys</button>
+      <button class="tab-btn" onclick="filterSignals('SELL')">Sells</button>
+      <button class="tab-btn" onclick="filterSignals('NEUTRAL')">Neutral</button>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="loadSignals()">
+      <i class="fa-solid fa-rotate-right"></i> Refresh
+    </button>
+  </div>
+
+  <div class="card">
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:0.82rem;border-collapse:collapse;" id="signals-table">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);">
+            <th style="text-align:left;padding:10px 14px;color:var(--text-dim);font-weight:600;">Pair</th>
+            <th style="text-align:center;padding:10px 14px;color:var(--text-dim);font-weight:600;">Signal</th>
+            <th style="text-align:right;padding:10px 14px;color:var(--text-dim);font-weight:600;">Score</th>
+            <th style="text-align:right;padding:10px 14px;color:var(--text-dim);font-weight:600;">COT Diff</th>
+            <th style="text-align:right;padding:10px 14px;color:var(--text-dim);font-weight:600;">Fund Diff</th>
+            <th style="text-align:left;padding:10px 14px;color:var(--text-dim);font-weight:600;">Base Edge</th>
+            <th style="text-align:left;padding:10px 14px;color:var(--text-dim);font-weight:600;">Quote Edge</th>
+            <th style="text-align:center;padding:10px 14px;color:var(--text-dim);font-weight:600;">Action</th>
+          </tr>
+        </thead>
+        <tbody id="signals-table-body">
+          <tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-dim);">Loading signals...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     PAGE: Economic Calendar
+══════════════════════════════════════════════════════════ -->
+<div class="page" id="page-calendar">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div style="display:flex;gap:8px;" id="cal-filter-btns">
+      <button class="tab-btn active" onclick="filterCalendar('ALL')">All</button>
+      <button class="tab-btn" onclick="filterCalendar('HIGH')">High Impact</button>
+      <button class="tab-btn" onclick="filterCalendar('MEDIUM')">Medium</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <span style="font-size:0.8rem;color:var(--text-dim)">Days ahead:</span>
+      <select id="cal-days" class="input-field" style="width:80px;" onchange="loadCalendar()">
+        <option>7</option><option>14</option><option>30</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="calendar-groups">
+    <div style="text-align:center;color:var(--text-dim);padding:40px;font-size:0.85rem;">Loading economic calendar...</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     PAGE: Currency Strength
+══════════════════════════════════════════════════════════ -->
+<div class="page" id="page-strength">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <div class="card">
+      <h3 style="font-size:0.9rem;font-weight:700;margin:0 0 16px;">Currency Strength Meter</h3>
+      <div id="strength-bars">
+        <div style="text-align:center;color:var(--text-dim);padding:20px;">Loading...</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="font-size:0.9rem;font-weight:700;margin:0 0 16px;">Strength Chart</h3>
+      <div style="position:relative;height:320px;">
+        <canvas id="strength-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h3 style="font-size:0.9rem;font-weight:700;margin:0 0 14px;">Interest Rate Overview</h3>
+    <div id="ir-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+      <div style="text-align:center;color:var(--text-dim);padding:20px;">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     PAGE: AI Analysis
+══════════════════════════════════════════════════════════ -->
+<div class="page" id="page-ai">
+  <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;">
+    <!-- Pair selector -->
+    <div>
+      <div class="card">
+        <h3 style="font-size:0.9rem;font-weight:700;margin:0 0 14px;">Select Pair</h3>
+        <input type="text" id="ai-pair-input" class="input-field" placeholder="e.g. EURUSD" maxlength="6"
+               style="margin-bottom:10px;" oninput="this.value=this.value.toUpperCase()"/>
+        <button class="btn btn-primary" style="width:100%;margin-bottom:16px;" onclick="runAiAnalysis()">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> Analyze Pair
+        </button>
+        <h4 style="font-size:0.8rem;color:var(--text-dim);margin:0 0 8px;">Quick Select</h4>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;" id="quick-pairs">
+          <!-- populated by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Analysis output -->
+    <div>
+      <div class="card" style="margin-bottom:16px;" id="ai-signal-card" style="display:none;">
+        <h3 style="font-size:0.9rem;font-weight:700;margin:0 0 12px;" id="ai-pair-title">—</h3>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;" id="ai-signal-stats"></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="font-size:0.9rem;font-weight:700;margin:0;">AI Analysis</h3>
+          <span id="ai-loading" style="font-size:0.78rem;color:var(--accent);display:none;">
+            <i class="fa-solid fa-circle-notch spin"></i> Generating...
+          </span>
+        </div>
+        <div class="ai-output" id="ai-analysis-output" style="color:var(--text-dim);">
+          Select a pair and click "Analyze Pair" to get a detailed AI analysis based on COT data, interest rates, and economic context.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     PAGE: Settings
+══════════════════════════════════════════════════════════ -->
+<div class="page" id="page-settings">
+  <div style="max-width:640px;">
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="font-size:0.9rem;font-weight:700;margin:0 0 16px;">Central Bank Interest Rates</h3>
+      <p style="font-size:0.8rem;color:var(--text-dim);margin:0 0 16px;">Update current central bank rates to improve edge calculations. Values in % per annum.</p>
+      <div id="ir-form-rows" style="display:flex;flex-direction:column;gap:10px;">
+        <!-- populated by JS -->
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="font-size:0.9rem;font-weight:700;margin:0 0 12px;">Data Sources</h3>
+      <div style="font-size:0.82rem;color:var(--text-dim);line-height:1.8;">
+        <div>📊 <strong style="color:var(--text)">COT Data:</strong> CFTC Traders in Financial Futures (TFF) Report</div>
+        <div>💱 <strong style="color:var(--text)">Forex Rates:</strong> open.er-api.com / exchangerate.host / frankfurter.app</div>
+        <div>🤖 <strong style="color:var(--text)">AI Analysis:</strong> Claude claude-sonnet-4-6 (Anthropic)</div>
+        <div>📅 <strong style="color:var(--text)">Economic Calendar:</strong> Built-in + manual</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="font-size:0.9rem;font-weight:700;margin:0 0 12px;">System Status</h3>
+      <div id="status-info" style="font-size:0.82rem;color:var(--text-dim);line-height:1.8;">Loading...</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /.main -->
+
+<!-- ══════════════════════════════════════════════════════════
+     JAVASCRIPT
+══════════════════════════════════════════════════════════ -->
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let allSignals = [];
+let allCalendar = [];
+let cotChartInstance = null;
+let strengthChartInstance = null;
+let currentCotCurrency = 'EUR';
+let currentCotChartType = 'net';
+let signalFilter = 'ALL';
+let calFilter = 'ALL';
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+const api = async (path) => {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+};
+
+const fmt = (n, dec=1) => n == null ? '—' : Number(n).toFixed(dec);
+const fmtK = (n) => n == null ? '—' : (Math.abs(n) >= 1000 ? (n/1000).toFixed(1)+'K' : String(n));
+const sign = (n) => n > 0 ? '+' : '';
+
+function signalBadge(dir) {
+  const map = {
+    STRONG_BUY: ['badge-buy','Strong Buy'],
+    BUY: ['badge-buy','Buy'],
+    STRONG_SELL: ['badge-sell','Strong Sell'],
+    SELL: ['badge-sell','Sell'],
+    NEUTRAL: ['badge-neutral','Neutral'],
+  };
+  const [cls, label] = map[dir] || ['badge-neutral', dir];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+function colorForScore(score) {
+  if (score >= 65) return '#00e676';
+  if (score >= 55) return '#69f0ae';
+  if (score >= 45) return '#ffd740';
+  if (score >= 35) return '#ff6d6d';
+  return '#ff1744';
+}
+
+function miniScoreArc(score, size=48) {
+  const r = (size/2)-4, cx=size/2, cy=size/2;
+  const pct = Math.min(100,Math.max(0,score||50))/100;
+  const circ = 2*Math.PI*r;
+  const dash = pct*circ;
+  const col = colorForScore(score);
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e293b" stroke-width="4"/>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${col}" stroke-width="4"
+      stroke-dasharray="${dash} ${circ}" transform="rotate(-90 ${cx} ${cy})" stroke-linecap="round"/>
+    <text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="${size*0.25}px" fill="${col}" font-weight="700">${Math.round(score||0)}</text>
+  </svg>`;
+}
+
+// ── Clock ──────────────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('sidebar-time').textContent =
+    now.toUTCString().slice(17,22) + ' UTC';
+  document.getElementById('sidebar-date').textContent =
+    now.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Page navigation ────────────────────────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.textContent.toLowerCase().includes(name.toLowerCase().replace('-',' '))) {
+      n.classList.add('active');
+    }
+  });
+  const titles = {dashboard:'Dashboard',cot:'COT Analysis',signals:'Signal Scanner',
+    calendar:'Economic Calendar',strength:'Currency Strength',ai:'AI Analysis',settings:'Settings'};
+  document.getElementById('page-title').textContent = titles[name] || name;
+
+  if (name === 'cot') loadCotPage();
+  if (name === 'calendar') loadCalendar();
+  if (name === 'strength') loadStrengthPage();
+  if (name === 'settings') loadSettings();
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  try {
+    const [edges, topSigs, cotAll] = await Promise.all([
+      api('/api/edges'),
+      api('/api/signals/top'),
+      api('/api/cot'),
+    ]);
+    renderCurrencyCards(edges);
+    renderTopSignals(topSigs);
+    renderCotOverview(cotAll);
+    document.getElementById('data-status').textContent = `Last update: ${new Date().toLocaleTimeString()}`;
+  } catch(e) {
+    console.error('Dashboard load error:', e);
+    document.getElementById('data-status').textContent = '⚠ Data error — check console';
+  }
+}
+
+function renderCurrencyCards(edges) {
+  const container = document.getElementById('currency-cards');
+  const currencies = ['USD','EUR','GBP','JPY','CAD','AUD','NZD','CHF'];
+  const flags = {USD:'🇺🇸',EUR:'🇪🇺',GBP:'🇬🇧',JPY:'🇯🇵',CAD:'🇨🇦',AUD:'🇦🇺',NZD:'🇳🇿',CHF:'🇨🇭'};
+  container.innerHTML = currencies.map(c => {
+    const e = edges[c] || {};
+    const score = e.edge_score || 50;
+    const col = e.color || colorForScore(score);
+    const wkChange = e.weekly_change;
+    const chgText = wkChange != null ? `${sign(wkChange)}${fmtK(wkChange)}` : '—';
+    const chgCol = wkChange > 0 ? 'var(--green)' : wkChange < 0 ? 'var(--red)' : 'var(--text-dim)';
+    return `<div class="currency-card" onclick="quickCotView('${c}')">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <div>
+          <span style="font-size:1.3rem;">${flags[c]||'🏳'}</span>
+          <span style="font-weight:700;font-size:1rem;margin-left:6px;">${c}</span>
+        </div>
+        ${miniScoreArc(score, 52)}
+      </div>
+      <div style="font-size:0.75rem;color:${col};font-weight:700;margin-bottom:4px;">${e.label||'—'}</div>
+      <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-dim);">
+        <span>COT ${fmt(e.cot_score)}</span>
+        <span style="color:${chgCol}">${chgText} wk</span>
+      </div>
+      <div class="progress" style="margin-top:8px;">
+        <div class="progress-fill" style="width:${score}%;background:${col};"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderTopSignals(signals) {
+  const container = document.getElementById('top-signals-list');
+  if (!signals || !signals.length) {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:20px;font-size:0.8rem;">No actionable signals at this time</div>';
+    return;
+  }
+  container.innerHTML = signals.slice(0,6).map(s => {
+    const isUp = s.direction.includes('BUY');
+    const arrow = isUp ? '▲' : '▼';
+    const arrowCol = isUp ? 'var(--green)' : 'var(--red)';
+    return `<div class="signal-row">
+      <div style="width:72px;font-weight:700;font-size:0.85rem;">${s.pair}</div>
+      ${signalBadge(s.direction)}
+      <div style="flex:1;"></div>
+      <div style="text-align:right;">
+        <div style="font-size:0.85rem;font-weight:700;color:${arrowCol}">${arrow} ${fmt(s.signal_score)}</div>
+        <div style="font-size:0.7rem;color:var(--text-dim)">Edge: ${sign(s.edge_diff)}${fmt(s.edge_diff)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderCotOverview(cotAll) {
+  const container = document.getElementById('cot-overview-list');
+  const currencies = Object.keys(cotAll).filter(c => cotAll[c].available);
+  if (!currencies.length) {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:20px;font-size:0.8rem;">No COT data available — click Refresh Data to fetch from CFTC</div>';
+    return;
+  }
+  container.innerHTML = currencies.map(c => {
+    const data = cotAll[c];
+    const idx = data.cot_index || 50;
+    const col = idx >= 65 ? 'var(--green)' : idx <= 35 ? 'var(--red)' : 'var(--yellow)';
+    return `<div class="signal-row">
+      <div style="width:36px;font-weight:700;font-size:0.82rem;">${c}</div>
+      <div style="flex:1;padding:0 8px;">
+        <div class="cot-bar">
+          <div class="cot-bar-fill" style="width:${idx}%;background:${col};"></div>
+        </div>
+      </div>
+      <div style="width:38px;text-align:right;font-size:0.82rem;font-weight:700;color:${col}">${fmt(idx,0)}</div>
+      <span class="badge ${data.bias==='BULLISH'?'badge-buy':data.bias==='BEARISH'?'badge-sell':'badge-neutral'}" style="width:60px;text-align:center;">${data.bias}</span>
+    </div>`;
+  }).join('');
+}
+
+async function loadAiOverview() {
+  const el = document.getElementById('ai-overview-output');
+  el.textContent = '';
+  el.style.color = 'var(--text)';
+  const es = new EventSource('/api/ai/overview');
+  es.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if (d.type === 'done') { es.close(); return; }
+    el.textContent += d.text || '';
+  };
+  es.onerror = () => { es.close(); };
+}
+
+function quickCotView(currency) {
+  showPage('cot');
+  selectCotCurrency(currency);
+}
+
+// ── COT Page ───────────────────────────────────────────────────────────────
+async function loadCotPage() {
+  selectCotCurrency(currentCotCurrency);
+  loadCotTable();
+}
+
+async function selectCotCurrency(currency) {
+  currentCotCurrency = currency;
+  document.querySelectorAll('[id^="cot-tab-"]').forEach(b => b.classList.remove('active'));
+  const tab = document.getElementById('cot-tab-' + currency);
+  if (tab) tab.classList.add('active');
+
+  try {
+    const data = await api('/api/cot/' + currency);
+    renderCotStats(data);
+    renderCotChart(data);
+  } catch(e) {
+    document.getElementById('cot-stats-card').innerHTML =
+      '<div style="color:var(--red);font-size:0.8rem;">Error loading COT data</div>';
+  }
+}
+
+function renderCotStats(data) {
+  const card = document.getElementById('cot-stats-card');
+  if (!data.available) {
+    card.innerHTML = `<div style="text-align:center;padding:20px;">
+      <div style="color:var(--yellow);font-size:0.85rem;margin-bottom:8px;">⚠ No COT data</div>
+      <div style="font-size:0.75rem;color:var(--text-dim)">Click "Refresh Data" to fetch from CFTC</div>
+    </div>`;
+    return;
+  }
+  const l = data.latest || {};
+  const idx = data.cot_index;
+  const col = idx >= 65 ? 'var(--green)' : idx <= 35 ? 'var(--red)' : 'var(--yellow)';
+  const wkCh = data.weekly_change;
+  card.innerHTML = `
+    <div style="text-align:center;margin-bottom:16px;">
+      <div style="font-size:0.9rem;font-weight:700;margin-bottom:8px;">${data.currency} COT Index</div>
+      <div style="font-size:2.5rem;font-weight:800;color:${col}">${idx != null ? Math.round(idx) : '—'}</div>
+      <div style="font-size:0.75rem;color:var(--text-dim)">out of 100 (52-week)</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;font-size:0.8rem;">
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:var(--text-dim)">Lev. Net Position</span>
+        <span style="font-weight:700;color:${(l.lev_net||0)>0?'var(--green)':'var(--red)'}">${sign(l.lev_net||0)}${fmtK(l.lev_net)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:var(--text-dim)">Lev. Long</span>
+        <span style="color:var(--green)">${fmtK(l.lev_long)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:var(--text-dim)">Lev. Short</span>
+        <span style="color:var(--red)">${fmtK(l.lev_short)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:var(--text-dim)">Wk Change</span>
+        <span style="color:${wkCh>0?'var(--green)':wkCh<0?'var(--red)':'var(--text-dim)'}">${wkCh!=null?sign(wkCh)+fmtK(wkCh):'—'}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:var(--text-dim)">Open Interest</span>
+        <span>${fmtK(l.open_interest)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:var(--text-dim)">Bias</span>
+        <span class="badge ${data.bias==='BULLISH'?'badge-buy':data.bias==='BEARISH'?'badge-sell':'badge-neutral'}">${data.bias}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:var(--text-dim)">Report Date</span>
+        <span>${l.report_date||'—'}</span>
+      </div>
+    </div>`;
+}
+
+function renderCotChart(data) {
+  const ctx = document.getElementById('cot-chart').getContext('2d');
+  if (cotChartInstance) { cotChartInstance.destroy(); cotChartInstance = null; }
+  document.getElementById('cot-chart-title').textContent =
+    currentCotChartType === 'net' ? `${data.currency} — Net Speculator Position` : `${data.currency} — COT Index (52-week)`;
+
+  const history = data.history || [];
+  const labels = history.map(h => h.report_date ? h.report_date.slice(0,10) : '');
+
+  let dataset;
+  if (currentCotChartType === 'net') {
+    const nets = history.map(h => h.lev_net || 0);
+    dataset = {
+      label: 'Net Position (Lev. Funds)',
+      data: nets,
+      borderColor: '#3b82f6',
+      backgroundColor: nets.map(v => v > 0 ? 'rgba(0,230,118,0.15)' : 'rgba(255,23,68,0.15)'),
+      borderWidth: 2,
+      fill: true,
+      tension: 0.3,
+      pointRadius: 2,
+    };
+  } else {
+    // Compute rolling COT index for chart
+    const nets = history.map(h => h.lev_net || 0);
+    const indexValues = nets.map((_, i) => {
+      const window = nets.slice(Math.max(0, i-51), i+1);
+      const mn = Math.min(...window), mx = Math.max(...window);
+      if (mx === mn) return 50;
+      return ((nets[i] - mn) / (mx - mn)) * 100;
+    });
+    dataset = {
+      label: 'COT Index',
+      data: indexValues,
+      borderColor: '#ffd740',
+      backgroundColor: 'rgba(255,215,64,0.1)',
+      borderWidth: 2,
+      fill: true,
+      tension: 0.3,
+      pointRadius: 2,
+    };
+  }
+
+  cotChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [dataset] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        x: { ticks: { color: '#94a3b8', maxTicksLimit: 10, font: { size: 10 } }, grid: { color: '#1e293b' } },
+        y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#1e293b' } },
+      },
+    },
+  });
+}
+
+function setCotChartType(type) {
+  currentCotChartType = type;
+  document.getElementById('chart-net').classList.toggle('active', type==='net');
+  document.getElementById('chart-index').classList.toggle('active', type==='index');
+  selectCotCurrency(currentCotCurrency);
+}
+
+async function loadCotTable() {
+  const tbody = document.getElementById('cot-table-body');
+  try {
+    const data = await api('/api/cot');
+    const currencies = Object.keys(data);
+    if (!currencies.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-dim);">No COT data — refresh to fetch from CFTC</td></tr>';
+      return;
+    }
+    tbody.innerHTML = currencies.map(c => {
+      const d = data[c];
+      if (!d.available) return `<tr><td style="padding:10px 12px;">${c}</td><td colspan="5" style="color:var(--text-dim);font-size:0.78rem;">No data</td></tr>`;
+      const l = d.latest || {};
+      const idx = d.cot_index || 50;
+      const col = idx >= 65 ? 'var(--green)' : idx <= 35 ? 'var(--red)' : 'var(--yellow)';
+      const wkCh = d.weekly_change;
+      return `<tr class="pair-row" style="border-bottom:1px solid var(--border);" onclick="selectCotCurrency('${c}')">
+        <td style="padding:10px 12px;font-weight:700;">${c}</td>
+        <td style="padding:10px 12px;text-align:right;color:${(l.lev_net||0)>0?'var(--green)':'var(--red)'};">${sign(l.lev_net||0)}${fmtK(l.lev_net)}</td>
+        <td style="padding:10px 12px;text-align:right;font-weight:700;color:${col}">${fmt(idx,0)}</td>
+        <td style="padding:10px 12px;text-align:right;color:${wkCh>0?'var(--green)':wkCh<0?'var(--red)':'var(--text-dim)'}">${wkCh!=null?sign(wkCh)+fmtK(wkCh):'—'}</td>
+        <td style="padding:10px 12px;text-align:center;"><span class="badge ${d.bias==='BULLISH'?'badge-buy':d.bias==='BEARISH'?'badge-sell':'badge-neutral'}">${d.bias}</span></td>
+        <td style="padding:10px 12px;min-width:100px;">
+          <div class="cot-bar"><div class="cot-bar-fill" style="width:${idx}%;background:${col};"></div></div>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--red);">Error loading COT data</td></tr>';
+  }
+}
+
+// ── Signals Page ───────────────────────────────────────────────────────────
+async function loadSignals() {
+  const tbody = document.getElementById('signals-table-body');
+  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-dim);">Loading...</td></tr>';
+  try {
+    allSignals = await api('/api/signals');
+    renderSignalsTable();
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--red);">Error loading signals</td></tr>';
+  }
+}
+
+function filterSignals(filter) {
+  signalFilter = filter;
+  document.querySelectorAll('#signal-filter-btns .tab-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent.toUpperCase().startsWith(filter === 'ALL' ? 'ALL' : filter.charAt(0)));
+  });
+  renderSignalsTable();
+}
+
+function renderSignalsTable() {
+  const tbody = document.getElementById('signals-table-body');
+  let filtered = allSignals;
+  if (signalFilter !== 'ALL') {
+    filtered = allSignals.filter(s => {
+      if (signalFilter === 'BUY') return s.direction.includes('BUY');
+      if (signalFilter === 'SELL') return s.direction.includes('SELL');
+      return s.direction === 'NEUTRAL';
+    });
+  }
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-dim);">No signals match filter</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtered.map(s => {
+    const baseScore = s.base?.edge_score || 50;
+    const quoteScore = s.quote?.edge_score || 50;
+    const cotDiffCol = s.cot_diff > 0 ? 'var(--green)' : s.cot_diff < 0 ? 'var(--red)' : 'var(--text-dim)';
+    const fundDiffCol = s.fundamental_diff > 0 ? 'var(--green)' : s.fundamental_diff < 0 ? 'var(--red)' : 'var(--text-dim)';
+    return `<tr class="pair-row" style="border-bottom:1px solid var(--border);">
+      <td style="padding:10px 14px;font-weight:700;font-size:0.9rem;">${s.pair}</td>
+      <td style="padding:10px 14px;text-align:center;">${signalBadge(s.direction)}</td>
+      <td style="padding:10px 14px;text-align:right;">
+        <div style="font-weight:700;color:${colorForScore(s.signal_score)}">${fmt(s.signal_score,0)}</div>
+        <div style="font-size:0.7rem;color:var(--text-dim)">score</div>
+      </td>
+      <td style="padding:10px 14px;text-align:right;color:${cotDiffCol}">${sign(s.cot_diff)}${fmt(s.cot_diff)}</td>
+      <td style="padding:10px 14px;text-align:right;color:${fundDiffCol}">${sign(s.fundamental_diff)}${fmt(s.fundamental_diff)}</td>
+      <td style="padding:10px 14px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:0.78rem;font-weight:600;">${s.pair.slice(0,3)}</span>
+          <div style="flex:1;min-width:60px;"><div class="progress"><div class="progress-fill" style="width:${baseScore}%;background:${colorForScore(baseScore)};"></div></div></div>
+          <span style="font-size:0.75rem;color:${colorForScore(baseScore)}">${fmt(baseScore,0)}</span>
+        </div>
+      </td>
+      <td style="padding:10px 14px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:0.78rem;font-weight:600;">${s.pair.slice(3)}</span>
+          <div style="flex:1;min-width:60px;"><div class="progress"><div class="progress-fill" style="width:${quoteScore}%;background:${colorForScore(quoteScore)};"></div></div></div>
+          <span style="font-size:0.75rem;color:${colorForScore(quoteScore)}">${fmt(quoteScore,0)}</span>
+        </div>
+      </td>
+      <td style="padding:10px 14px;text-align:center;">
+        <button class="btn btn-outline btn-sm" onclick="analyzeFromSignal('${s.pair}')">
+          <i class="fa-solid fa-robot"></i>
+        </button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function analyzeFromSignal(pair) {
+  document.getElementById('ai-pair-input').value = pair;
+  showPage('ai');
+  runAiAnalysis();
+}
+
+// ── Calendar Page ──────────────────────────────────────────────────────────
+async function loadCalendar() {
+  const days = document.getElementById('cal-days').value || 7;
+  const container = document.getElementById('calendar-groups');
+  container.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:40px;">Loading...</div>';
+  try {
+    allCalendar = await api('/api/calendar?days_ahead=' + days);
+    renderCalendar();
+  } catch(e) {
+    container.innerHTML = '<div style="text-align:center;color:var(--red);padding:40px;">Error loading calendar</div>';
+  }
+}
+
+function filterCalendar(filter) {
+  calFilter = filter;
+  document.querySelectorAll('#cal-filter-btns .tab-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent.toUpperCase() === filter || (filter==='ALL' && b.textContent==='All'));
+  });
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const container = document.getElementById('calendar-groups');
+  let events = allCalendar;
+  if (calFilter === 'HIGH') events = events.filter(e => e.impact === 'HIGH');
+  if (calFilter === 'MEDIUM') events = events.filter(e => e.impact === 'MEDIUM');
+
+  if (!events.length) {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-dim);padding:40px;">No events found</div>';
+    return;
+  }
+
+  // Group by date
+  const groups = {};
+  events.forEach(e => {
+    const d = e.event_date || 'Unknown';
+    if (!groups[d]) groups[d] = [];
+    groups[d].push(e);
+  });
+
+  const impactBadge = (imp) => {
+    const cls = {HIGH:'badge-high',MEDIUM:'badge-medium',LOW:'badge-low'}[imp]||'badge-low';
+    return `<span class="badge ${cls}">${imp}</span>`;
+  };
+
+  const currencyFlags = {USD:'🇺🇸',EUR:'🇪🇺',GBP:'🇬🇧',JPY:'🇯🇵',CAD:'🇨🇦',AUD:'🇦🇺',NZD:'🇳🇿',CHF:'🇨🇭',MXN:'🇲🇽'};
+
+  container.innerHTML = Object.entries(groups).sort(([a],[b])=>a<b?-1:1).map(([date, evs]) => {
+    const dt = new Date(date + 'T00:00:00');
+    const dayLabel = dt.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+    return `<div class="card" style="margin-bottom:12px;">
+      <div style="font-weight:700;font-size:0.85rem;color:var(--accent);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);">
+        📅 ${dayLabel}
+      </div>
+      ${evs.map(ev => `
+        <div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">
+          <div style="font-size:1.1rem;">${currencyFlags[ev.currency]||'🏳'}</div>
+          <div style="flex:1;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span style="font-weight:600;font-size:0.85rem;">${ev.event_name}</span>
+              ${impactBadge(ev.impact)}
+              <span style="font-size:0.75rem;color:var(--accent);font-weight:700;">${ev.currency}</span>
+            </div>
+            <div style="display:flex;gap:16px;font-size:0.75rem;color:var(--text-dim);">
+              ${ev.forecast ? `<span>Forecast: <strong style="color:var(--text)">${ev.forecast}</strong></span>` : ''}
+              ${ev.previous ? `<span>Previous: <strong style="color:var(--text)">${ev.previous}</strong></span>` : ''}
+              ${ev.actual ? `<span>Actual: <strong style="color:var(--green)">${ev.actual}</strong></span>` : ''}
+            </div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="analyzeFromSignal('${ev.currency}USD')" title="Analyze ${ev.currency}/USD">
+            <i class="fa-solid fa-robot"></i>
+          </button>
+        </div>
+      `).join('')}
+    </div>`;
+  }).join('');
+}
+
+// ── Strength Page ──────────────────────────────────────────────────────────
+async function loadStrengthPage() {
+  try {
+    const [strength, ir] = await Promise.all([
+      api('/api/strength'),
+      api('/api/interest-rates'),
+    ]);
+    renderStrengthBars(strength);
+    renderStrengthChart(strength);
+    renderIrGrid(ir);
+  } catch(e) {
+    console.error('Strength page error:', e);
+  }
+}
+
+function renderStrengthBars(strength) {
+  const container = document.getElementById('strength-bars');
+  const sorted = Object.entries(strength).sort(([,a],[,b]) => b-a);
+  container.innerHTML = sorted.map(([c, score]) => {
+    const col = colorForScore(score);
+    return `<div style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:0.82rem;">
+        <span style="font-weight:700;">${c}</span>
+        <span style="font-weight:700;color:${col}">${fmt(score, 1)}</span>
+      </div>
+      <div class="progress" style="height:10px;">
+        <div class="progress-fill" style="width:${score}%;background:${col};"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderStrengthChart(strength) {
+  const ctx = document.getElementById('strength-chart').getContext('2d');
+  if (strengthChartInstance) { strengthChartInstance.destroy(); strengthChartInstance = null; }
+  const sorted = Object.entries(strength).sort(([,a],[,b]) => b-a);
+  strengthChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: sorted.map(([c]) => c),
+      datasets: [{
+        data: sorted.map(([,s]) => s),
+        backgroundColor: sorted.map(([,s]) => colorForScore(s) + '99'),
+        borderColor: sorted.map(([,s]) => colorForScore(s)),
+        borderWidth: 2,
+        borderRadius: 6,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#94a3b8' }, grid: { display: false } },
+        y: { min: 0, max: 100, ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
+      },
+    },
+  });
+}
+
+function renderIrGrid(ir) {
+  const container = document.getElementById('ir-grid');
+  const flags = {USD:'🇺🇸',EUR:'🇪🇺',GBP:'🇬🇧',JPY:'🇯🇵',CAD:'🇨🇦',AUD:'🇦🇺',NZD:'🇳🇿',CHF:'🇨🇭',MXN:'🇲🇽'};
+  const currencies = ['USD','EUR','GBP','JPY','CAD','AUD','NZD','CHF'];
+  container.innerHTML = currencies.map(c => {
+    const d = ir[c] || {};
+    const rate = d.rate != null ? d.rate : '—';
+    return `<div class="card-sm">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <span style="font-size:1.1rem;">${flags[c]||'🏳'}</span>
+        <span style="font-weight:700;font-size:0.85rem;">${c}</span>
+      </div>
+      <div style="font-size:1.5rem;font-weight:800;color:var(--accent);margin-bottom:2px;">${rate}%</div>
+      <div style="font-size:0.7rem;color:var(--text-dim);">${d.central_bank||'—'}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── AI Page ────────────────────────────────────────────────────────────────
+function populateQuickPairs() {
+  const pairs = ['EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD','NZDUSD','EURGBP','EURJPY'];
+  document.getElementById('quick-pairs').innerHTML = pairs.map(p =>
+    `<button class="btn btn-outline btn-sm" onclick="document.getElementById('ai-pair-input').value='${p}';runAiAnalysis()">${p}</button>`
+  ).join('');
+}
+
+async function runAiAnalysis() {
+  const pair = document.getElementById('ai-pair-input').value.trim().toUpperCase();
+  if (pair.length !== 6) {
+    alert('Please enter a valid 6-character pair (e.g. EURUSD)');
+    return;
+  }
+
+  const loadingEl = document.getElementById('ai-loading');
+  const outputEl = document.getElementById('ai-analysis-output');
+  const titleEl = document.getElementById('ai-pair-title');
+  const statsEl = document.getElementById('ai-signal-stats');
+
+  loadingEl.style.display = 'inline-flex';
+  outputEl.textContent = '';
+  outputEl.style.color = 'var(--text)';
+  titleEl.textContent = pair + ' Analysis';
+
+  // Load signal data
+  try {
+    const sigs = await api('/api/signals');
+    const sig = sigs.find(s => s.pair === pair);
+    if (sig) {
+      statsEl.innerHTML = `
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:4px;">Signal</div>
+          ${signalBadge(sig.direction)}
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:4px;">Edge Diff</div>
+          <div style="font-weight:700;color:${sig.edge_diff>0?'var(--green)':'var(--red)'}">${sign(sig.edge_diff)}${fmt(sig.edge_diff)}</div>
+        </div>
+        <div class="card-sm" style="text-align:center;">
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:4px;">Score</div>
+          <div style="font-weight:700;color:${colorForScore(sig.signal_score)}">${fmt(sig.signal_score,0)}</div>
+        </div>`;
+    }
+  } catch(e) {}
+
+  // Stream AI analysis
+  const es = new EventSource('/api/ai/analyze/' + pair);
+  es.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    if (d.type === 'done') {
+      es.close();
+      loadingEl.style.display = 'none';
+      return;
+    }
+    outputEl.textContent += d.text || '';
+  };
+  es.onerror = () => {
+    es.close();
+    loadingEl.style.display = 'none';
+  };
+}
+
+// ── Settings Page ──────────────────────────────────────────────────────────
+async function loadSettings() {
+  const [ir, status] = await Promise.all([
+    api('/api/interest-rates'),
+    api('/api/status'),
+  ]);
+
+  const flags = {USD:'🇺🇸',EUR:'🇪🇺',GBP:'🇬🇧',JPY:'🇯🇵',CAD:'🇨🇦',AUD:'🇦🇺',NZD:'🇳🇿',CHF:'🇨🇭',MXN:'🇲🇽'};
+  document.getElementById('ir-form-rows').innerHTML = Object.entries(ir).map(([c, d]) => `
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span style="font-size:1rem;">${flags[c]||'🏳'}</span>
+      <span style="width:36px;font-weight:700;font-size:0.85rem;">${c}</span>
+      <span style="flex:1;font-size:0.75rem;color:var(--text-dim);">${d.central_bank||''}</span>
+      <input type="number" step="0.01" min="0" max="25" value="${d.rate}"
+        id="ir-${c}" class="input-field" style="width:80px;"/>
+      <button class="btn btn-outline btn-sm" onclick="saveRate('${c}')">Save</button>
+    </div>
+  `).join('');
+
+  document.getElementById('status-info').innerHTML = `
+    <div>🔄 Scheduler: <strong style="color:var(--green)">${status.scheduler_running ? 'Running' : 'Stopped'}</strong></div>
+    <div>📊 Next COT refresh: <strong style="color:var(--text)">${status.next_cot_refresh ? new Date(status.next_cot_refresh).toLocaleString() : '—'}</strong></div>
+    <div>💱 Next rate refresh: <strong style="color:var(--text)">${status.next_rates_refresh ? new Date(status.next_rates_refresh).toLocaleString() : '—'}</strong></div>
+    <div>🕐 Server time (UTC): <strong style="color:var(--text)">${status.current_time_utc ? new Date(status.current_time_utc).toLocaleString() : '—'}</strong></div>
+  `;
+}
+
+async function saveRate(currency) {
+  const val = parseFloat(document.getElementById('ir-' + currency).value);
+  if (isNaN(val)) { alert('Invalid rate'); return; }
+  try {
+    await fetch('/api/interest-rates/' + currency, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({rate: val}),
+    });
+    alert(`${currency} rate updated to ${val}%`);
+  } catch(e) {
+    alert('Failed to update rate');
+  }
+}
+
+// ── Refresh All ────────────────────────────────────────────────────────────
+async function refreshAll() {
+  const btn = document.getElementById('refresh-btn');
+  btn.innerHTML = '<i class="fa-solid fa-circle-notch spin"></i> Refreshing...';
+  btn.disabled = true;
+  try {
+    await Promise.all([
+      fetch('/api/refresh/cot', {method:'POST'}),
+      fetch('/api/refresh/rates', {method:'POST'}),
+    ]);
+    await loadDashboard();
+    const currentPage = document.querySelector('.page.active').id.replace('page-', '');
+    if (currentPage === 'cot') loadCotPage();
+    if (currentPage === 'signals') loadSignals();
+    if (currentPage === 'strength') loadStrengthPage();
+  } catch(e) {
+    console.error('Refresh error:', e);
+  } finally {
+    btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> Refresh Data';
+    btn.disabled = false;
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function init() {
+  populateQuickPairs();
+  await loadDashboard();
+  // Preload signals in background
+  loadSignals();
+}
+
+init();
+</script>
+</body>
+</html>
