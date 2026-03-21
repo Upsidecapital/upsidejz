@@ -16,6 +16,15 @@ from typing import List
 TWELVE_DATA_API_KEY: str = os.environ.get("TWELVE_DATA_API_KEY", "")
 TELEGRAM_BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID: str = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# ---------------------------------------------------------------------------
+# MetaTrader 5 Credentials
+# ---------------------------------------------------------------------------
+MT5_LOGIN: str = os.environ.get("MT5_LOGIN", "")
+MT5_PASSWORD: str = os.environ.get("MT5_PASSWORD", "")
+MT5_SERVER: str = os.environ.get("MT5_SERVER", "")        # e.g. "ICMarkets-Live"
+MT5_SYMBOL: str = os.environ.get("MT5_SYMBOL", "XAUUSD")  # some brokers use "GOLD"
+MT5_LOT_DIVISOR: float = float(os.environ.get("MT5_LOT_DIVISOR", "100"))  # 1 MT5 lot = 100 oz
 DATABASE_URL: str = os.environ.get(
     "DATABASE_URL",
     "postgresql+asyncpg://user:password@localhost:5432/greymatter",

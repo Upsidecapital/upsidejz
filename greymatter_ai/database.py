@@ -108,6 +108,7 @@ class Trade(Base):
     pnl_r = Column(Float, nullable=True)                # result in R multiples
     status = Column(Enum(TradeStatus), default=TradeStatus.PENDING, nullable=False)
     conviction = Column(Float, nullable=False)
+    mt5_ticket = Column(BigInteger, nullable=True)   # MT5 position ticket (None if MT5 not used)
     notes = Column(Text, nullable=True)
 
 

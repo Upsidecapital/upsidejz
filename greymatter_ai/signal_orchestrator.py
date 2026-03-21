@@ -24,6 +24,7 @@ import ema_pullbacks
 import liquidity_sweeps
 import orb_breakout
 from alert_manager import send_signal_alert, send_trade_alert
+from mt5_executor import executor as mt5_executor
 from config import (
     ACCOUNT_SIZE_USD, MAX_DAILY_DRAWDOWN_PCT, MAX_RISK_PER_TRADE_PCT,
     STRATEGY_CONFIGS,
@@ -295,6 +296,21 @@ class SignalOrchestrator:
         return float(result)
 
     async def _open_trade(self, sig: CandidateSignal, lot_size: float, risk_usd: float) -> None:
+        direction = sig.direction.value if hasattr(sig.direction, "value") else str(sig.direction)
+
+        # Place the real order on MT5 first
+        ticket = mt5_executor.place_order(
+            direction=direction,
+            lot_size_oz=lot_size,
+            stop_loss=sig.stop_loss,
+            take_profit=sig.take_profit,
+            comment=f"GM-{sig.strategy.value if hasattr(sig.strategy, 'value') else sig.strategy}",
+        )
+        if ticket is None:
+            logger.error("MT5 order failed — trade NOT recorded in DB")
+            return
+
+        # Only persist to DB after MT5 confirms the order
         async with AsyncSessionLocal() as db:
             trade = Trade(
                 strategy=sig.strategy,
@@ -307,12 +323,14 @@ class SignalOrchestrator:
                 conviction=sig.conviction,
                 status=TradeStatus.OPEN,
                 opened_at=datetime.now(timezone.utc),
+                mt5_ticket=ticket,
                 notes=sig.notes,
             )
             db.add(trade)
             await db.commit()
             await db.refresh(trade)
-        logger.info("Trade opened: %s %s lot=%.2f", sig.strategy, sig.direction, lot_size)
+
+        logger.info("Trade opened: %s %s lot=%.2f ticket=%d", sig.strategy, sig.direction, lot_size, ticket)
         await send_trade_alert(trade=None, sig=sig, lot_size=lot_size, risk_usd=risk_usd)
 
     async def _snapshot_equity(self, equity: float, daily_pnl: float) -> None:

@@ -12,6 +12,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from config import HEARTBEAT_SECONDS, OPTIMIZATION_INTERVAL_HOURS
 from data_fetcher import DataFetcher
+from mt5_executor import executor as mt5_executor
 from risk_manager import RiskManager
 from signal_orchestrator import SignalOrchestrator
 
@@ -33,22 +34,16 @@ async def _heartbeat() -> None:
 
 async def _monitor_open_trades() -> None:
     """
-    Check open trades against current price and close them if SL/TP hit.
-    In a live system this would hook into a broker API.
-    Here we use the last fetched M15 close as a proxy.
+    Check open trades against MT5 positions.
+    If MT5 has closed a position (SL/TP hit), sync the result to the DB.
+    Falls back to M15 price simulation if the trade has no MT5 ticket.
     """
     assert _fetcher is not None
     assert _risk is not None
-    m15 = _fetcher.get("15min")
-    if m15 is None or len(m15) == 0:
-        return
-
-    current_price = float(m15.iloc[-1]["close"])
 
     from database import AsyncSessionLocal, Trade, TradeStatus
     from sqlalchemy import select
     from alert_manager import send_close_alert
-    from config import ACCOUNT_SIZE_USD
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -56,26 +51,55 @@ async def _monitor_open_trades() -> None:
         )
         open_trades = result.scalars().all()
 
+    if not open_trades:
+        return
+
     for trade in open_trades:
         closed = False
         win = False
+        close_price = None
+        pnl_usd = None
 
-        if trade.direction.value == "long":
-            if current_price <= trade.stop_loss:
-                closed, win = True, False
-            elif current_price >= trade.take_profit:
-                closed, win = True, True
+        if trade.mt5_ticket:
+            # --- MT5 path: check if the position is still open ---
+            still_open = mt5_executor.is_position_open(trade.mt5_ticket)
+            if not still_open:
+                # Position closed in MT5 (SL/TP hit or manual close)
+                deal_info = mt5_executor.get_closed_deal_info(trade.mt5_ticket)
+                if deal_info:
+                    close_price, pnl_usd = deal_info
+                else:
+                    # Fallback: estimate from M15 close
+                    m15 = _fetcher.get("15min")
+                    close_price = float(m15.iloc[-1]["close"]) if m15 is not None and len(m15) > 0 else trade.entry_price
+                    pnl_usd = (close_price - trade.entry_price) * trade.lot_size
+                    if trade.direction.value == "short":
+                        pnl_usd = -pnl_usd
+                win = pnl_usd >= 0
+                closed = True
         else:
-            if current_price >= trade.stop_loss:
-                closed, win = True, False
-            elif current_price <= trade.take_profit:
-                closed, win = True, True
+            # --- Simulation fallback for trades without an MT5 ticket ---
+            m15 = _fetcher.get("15min")
+            if m15 is None or len(m15) == 0:
+                continue
+            current_price = float(m15.iloc[-1]["close"])
+            if trade.direction.value == "long":
+                if current_price <= trade.stop_loss:
+                    closed, win = True, False
+                elif current_price >= trade.take_profit:
+                    closed, win = True, True
+            else:
+                if current_price >= trade.stop_loss:
+                    closed, win = True, False
+                elif current_price <= trade.take_profit:
+                    closed, win = True, True
+            if closed:
+                close_price = current_price
+                pnl_usd = (close_price - trade.entry_price) * trade.lot_size
+                if trade.direction.value == "short":
+                    pnl_usd = -pnl_usd
 
-        if closed:
-            close_price = current_price
-            pnl_usd = (close_price - trade.entry_price) * trade.lot_size
-            if trade.direction.value == "short":
-                pnl_usd = -pnl_usd
+        if closed and close_price is not None and pnl_usd is not None:
             pnl_r = pnl_usd / trade.risk_usd if trade.risk_usd else 0.0
             status = TradeStatus.CLOSED_WIN if win else TradeStatus.CLOSED_LOSS
 
@@ -127,6 +151,12 @@ async def start_scheduler() -> None:
     _risk = RiskManager()
     _orchestrator = SignalOrchestrator(_fetcher, _risk)
 
+    connected = mt5_executor.connect()
+    if connected:
+        logger.info("MT5 executor connected and ready")
+    else:
+        logger.warning("MT5 executor NOT connected — signals will be generated but orders will NOT be placed")
+
     _scheduler = AsyncIOScheduler(timezone="UTC")
     _scheduler.add_job(
         _heartbeat,
@@ -153,4 +183,5 @@ async def stop_scheduler() -> None:
         _scheduler.shutdown(wait=False)
     if _fetcher:
         await _fetcher.close()
+    mt5_executor.disconnect()
     logger.info("Scheduler stopped")
