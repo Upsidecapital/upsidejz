@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 import httpx
 
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SYMBOL
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ async def _send(text: str) -> None:
 async def send_signal_alert(strategy: str, direction: str, conviction: float, entry: float, sl: float, tp: float, notes: str = "") -> None:
     emoji = "🟢" if direction == "long" else "🔴"
     msg = (
-        f"{emoji} <b>SIGNAL — XAUUSD</b>\n"
+        f"{emoji} <b>SIGNAL — {SYMBOL}</b>\n"
         f"Strategy: <code>{strategy}</code>\n"
         f"Direction: <b>{direction.upper()}</b>\n"
         f"Conviction: <b>{conviction:.0f}/100</b>\n"
@@ -52,13 +52,13 @@ async def send_trade_alert(trade: Any, sig: Any, lot_size: float, risk_usd: floa
     direction = sig.direction.value if hasattr(sig.direction, "value") else str(sig.direction)
     emoji = "🟢" if "long" in direction else "🔴"
     msg = (
-        f"{emoji} <b>TRADE OPENED — XAUUSD</b>\n"
+        f"{emoji} <b>TRADE OPENED — {SYMBOL}</b>\n"
         f"Strategy: <code>{sig.strategy.value if hasattr(sig.strategy, 'value') else sig.strategy}</code>\n"
         f"Direction: <b>{direction.upper()}</b>\n"
         f"Entry: <code>{sig.entry_price:.2f}</code>\n"
         f"SL: <code>{sig.stop_loss:.2f}</code>\n"
         f"TP: <code>{sig.take_profit:.2f}</code>\n"
-        f"Lot: <code>{lot_size:.2f} oz</code>  Risk: <code>${risk_usd:.0f}</code>\n"
+        f"Lot: <code>{lot_size:.4f} BTC</code>  Risk: <code>${risk_usd:.0f}</code>\n"
         f"Conviction: <b>{sig.conviction:.0f}/100</b>"
     )
     await _send(msg)
@@ -68,7 +68,7 @@ async def send_close_alert(strategy: str, direction: str, pnl_usd: float, pnl_r:
     emoji = "✅" if pnl_usd >= 0 else "❌"
     sign = "+" if pnl_usd >= 0 else ""
     msg = (
-        f"{emoji} <b>TRADE CLOSED — XAUUSD</b>\n"
+        f"{emoji} <b>TRADE CLOSED — {SYMBOL}</b>\n"
         f"Strategy: <code>{strategy}</code>\n"
         f"Direction: <b>{direction.upper()}</b>\n"
         f"P&amp;L: <b>{sign}{pnl_usd:.2f} USD</b>  ({sign}{pnl_r:.2f}R)"

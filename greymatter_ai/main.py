@@ -1,5 +1,5 @@
 """
-GreymatterAI — XAUUSD Autonomous Prop Desk
+GreymatterAI — BTCUSD Autonomous Prop Desk
 FastAPI entrypoint — starts scheduler, initialises DB, exposes REST + dashboard.
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="GreymatterAI — XAUUSD Prop Desk",
+    title="GreymatterAI — BTCUSD Prop Desk",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -156,7 +156,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GreymatterAI — XAUUSD Prop Desk</title>
+<title>GreymatterAI — BTCUSD Prop Desk</title>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;--gold:#f0b429;--green:#3fb950;--red:#f85149}
@@ -178,7 +178,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<h1>GreymatterAI — XAUUSD Autonomous Prop Desk</h1>
+<h1>GreymatterAI — BTCUSD Autonomous Prop Desk</h1>
 
 <div class="grid" id="statsGrid">
   <div class="card"><div class="label">Equity</div><div class="value neutral" id="sEquity">—</div></div>
