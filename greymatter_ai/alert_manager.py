@@ -58,7 +58,7 @@ async def send_trade_alert(trade: Any, sig: Any, lot_size: float, risk_usd: floa
         f"Entry: <code>{sig.entry_price:.2f}</code>\n"
         f"SL: <code>{sig.stop_loss:.2f}</code>\n"
         f"TP: <code>{sig.take_profit:.2f}</code>\n"
-        f"Lot: <code>{lot_size:.4f} BTC</code>  Risk: <code>${risk_usd:.0f}</code>\n"
+        f"Lot: <code>{lot_size:.2f} oz</code>  Risk: <code>${risk_usd:.0f}</code>\n"
         f"Conviction: <b>{sig.conviction:.0f}/100</b>"
     )
     await _send(msg)

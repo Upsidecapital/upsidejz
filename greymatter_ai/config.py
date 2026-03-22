@@ -1,5 +1,5 @@
 """
-GreymatterAI — BTCUSD Prop Desk
+GreymatterAI — XAUUSD Prop Desk
 Central configuration. All secrets are loaded from environment variables.
 Never commit real values to source control.
 """
@@ -23,8 +23,8 @@ TELEGRAM_CHAT_ID: str = os.environ.get("TELEGRAM_CHAT_ID", "")
 MT5_LOGIN: str = os.environ.get("MT5_LOGIN", "")
 MT5_PASSWORD: str = os.environ.get("MT5_PASSWORD", "")
 MT5_SERVER: str = os.environ.get("MT5_SERVER", "")        # e.g. "ICMarkets-Live"
-MT5_SYMBOL: str = os.environ.get("MT5_SYMBOL", "BTCUSD")  # some brokers use "BITCOIN"
-MT5_LOT_DIVISOR: float = float(os.environ.get("MT5_LOT_DIVISOR", "1"))  # 1 MT5 lot = 1 BTC
+MT5_SYMBOL: str = os.environ.get("MT5_SYMBOL", "XAUUSD")  # some brokers use "GOLD"
+MT5_LOT_DIVISOR: float = float(os.environ.get("MT5_LOT_DIVISOR", "100"))  # 1 MT5 lot = 100 oz
 DATABASE_URL: str = os.environ.get(
     "DATABASE_URL",
     "postgresql+asyncpg://user:password@localhost:5432/greymatter",
@@ -42,8 +42,8 @@ MIN_SHARPE_THRESHOLD: float = 0.5
 # ---------------------------------------------------------------------------
 # Instrument
 # ---------------------------------------------------------------------------
-SYMBOL: str = "BTC/USD"
-EXCHANGE: str = "CRYPTO"
+SYMBOL: str = "XAU/USD"
+EXCHANGE: str = "FOREX"
 
 TIMEFRAMES: List[str] = ["15min", "1h", "4h", "1day"]
 
