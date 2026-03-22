@@ -142,13 +142,16 @@ def run_backtest(
     max_bars: Optional[int] = None,
 ) -> BacktestResult:
     """
-    Walk-forward backtest across all 4 strategies.
+    Walk-forward backtest across all 7 strategies.
     Each bar: generate signal on bar close, enter on next bar open.
     """
     import ema_momentum as em
     import ema_pullbacks as ep
     import liquidity_sweeps as ls
+    import macd_fib as mf
+    import order_flow as of_
     import orb_breakout as orb
+    import vp_ivb as vp
 
     result = BacktestResult()
     equity = initial_equity
@@ -177,26 +180,29 @@ def run_backtest(
 
         risk_usd = equity * risk_pct
 
-        # Try strategies in conviction order (ORB first as flagship)
-        signal = None
-        strat = None
+        # Try all strategies, pick highest conviction
+        all_signals = []
         for strategy_fn, args, name in [
             (orb.detect, (m15_slice,), "orb_breakout"),
             (ls.detect, (m15_slice, d1_slice), "liquidity_sweep"),
             (ep.detect, (m15_slice, h1_slice), "ema_pullback"),
             (em.detect, (m15_slice, h4_slice, d1_slice), "ema_momentum"),
+            (vp.detect, (m15_slice, h1_slice), "volume_profile"),
+            (of_.detect, (m15_slice, d1_slice), "order_flow"),
+            (mf.detect, (m15_slice, h1_slice, h4_slice), "macd_fib"),
         ]:
             try:
                 sig = strategy_fn(*args)
                 if sig:
-                    signal = sig
-                    strat = name
-                    break
+                    all_signals.append((sig, name))
             except Exception:
                 pass
 
-        if signal is None:
+        if not all_signals:
             continue
+
+        # Pick highest conviction signal
+        signal, strat = max(all_signals, key=lambda x: x[0].conviction)
 
         # Execute at next bar open (i+1)
         entry_bar = i + 1

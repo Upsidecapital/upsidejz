@@ -1,6 +1,6 @@
 """
 GreymatterAI — Signal Orchestrator (Central Brain)
-Runs every 30 minutes. Collects signals from all 4 strategies,
+Runs every 30 minutes. Collects signals from all 7 strategies,
 ranks by conviction, applies risk rules, and decides whether to fire a trade.
 
 Risk rules enforced here:
@@ -22,7 +22,10 @@ from sqlalchemy import select, func
 import ema_momentum
 import ema_pullbacks
 import liquidity_sweeps
+import macd_fib
+import order_flow
 import orb_breakout
+import vp_ivb
 from alert_manager import send_signal_alert, send_trade_alert
 from mt5_executor import executor as mt5_executor
 from config import (
@@ -85,6 +88,9 @@ class SignalOrchestrator:
         candidates += self._collect_ema_pullbacks(m15, h1)
         candidates += self._collect_orb_breakouts(m15)
         candidates += self._collect_ema_momentum(m15, h4, d1)
+        candidates += self._collect_volume_profile(m15, h1)
+        candidates += self._collect_order_flow(m15, d1)
+        candidates += self._collect_macd_fib(m15, h1, h4)
 
         # 3. Store all raw signals
         await self._persist_signals(candidates)
@@ -212,6 +218,63 @@ class SignalOrchestrator:
                 )]
         except Exception as exc:
             logger.exception("EMAMomentum error: %s", exc)
+        return []
+
+    def _collect_volume_profile(self, m15, h1) -> List[CandidateSignal]:
+        try:
+            sig = vp_ivb.detect(m15, h1)
+            if sig:
+                return [CandidateSignal(
+                    strategy=StrategyName.VOLUME_PROFILE,
+                    direction=sig.direction,
+                    entry_price=sig.entry_price,
+                    stop_loss=sig.stop_loss,
+                    take_profit=sig.take_profit,
+                    conviction=sig.conviction,
+                    atr=sig.atr,
+                    bar_close_time=sig.bar_close_time,
+                    notes=sig.notes,
+                )]
+        except Exception as exc:
+            logger.exception("VolumeProfile error: %s", exc)
+        return []
+
+    def _collect_order_flow(self, m15, d1) -> List[CandidateSignal]:
+        try:
+            sig = order_flow.detect(m15, d1)
+            if sig:
+                return [CandidateSignal(
+                    strategy=StrategyName.ORDER_FLOW,
+                    direction=sig.direction,
+                    entry_price=sig.entry_price,
+                    stop_loss=sig.stop_loss,
+                    take_profit=sig.take_profit,
+                    conviction=sig.conviction,
+                    atr=sig.atr,
+                    bar_close_time=sig.bar_close_time,
+                    notes=sig.notes,
+                )]
+        except Exception as exc:
+            logger.exception("OrderFlow error: %s", exc)
+        return []
+
+    def _collect_macd_fib(self, m15, h1, h4) -> List[CandidateSignal]:
+        try:
+            sig = macd_fib.detect(m15, h1, h4)
+            if sig:
+                return [CandidateSignal(
+                    strategy=StrategyName.MACD_FIB,
+                    direction=sig.direction,
+                    entry_price=sig.entry_price,
+                    stop_loss=sig.stop_loss,
+                    take_profit=sig.take_profit,
+                    conviction=sig.conviction,
+                    atr=sig.atr,
+                    bar_close_time=sig.bar_close_time,
+                    notes=sig.notes,
+                )]
+        except Exception as exc:
+            logger.exception("MACDFib error: %s", exc)
         return []
 
     # ------------------------------------------------------------------

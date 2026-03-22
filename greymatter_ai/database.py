@@ -32,9 +32,21 @@ async def get_db() -> AsyncSession:  # type: ignore[return]
         yield session
 
 async def init_db() -> None:
-    """Create all tables on startup."""
+    """Create all tables on startup and migrate enums if needed."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # PostgreSQL requires explicit ALTER TYPE to add new enum values.
+        # These are idempotent: IF NOT EXISTS was added in PostgreSQL 9.6.
+        new_values = ["volume_profile", "order_flow", "macd_fib"]
+        for val in new_values:
+            try:
+                await conn.execute(
+                    __import__("sqlalchemy").text(
+                        f"ALTER TYPE strategyname ADD VALUE IF NOT EXISTS '{val}'"
+                    )
+                )
+            except Exception:
+                pass  # enum type may not exist yet (fresh DB) — create_all will handle it
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +75,9 @@ class StrategyName(str, enum.Enum):
     EMA_PULLBACK = "ema_pullback"
     ORB_BREAKOUT = "orb_breakout"
     EMA_MOMENTUM = "ema_momentum"
+    VOLUME_PROFILE = "volume_profile"
+    ORDER_FLOW = "order_flow"
+    MACD_FIB = "macd_fib"
 
 
 # ---------------------------------------------------------------------------

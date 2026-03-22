@@ -102,10 +102,37 @@ class EMAMomentumConfig:
     tp_atr_mult: float = 3.5
 
 @dataclass
+class VolumeProfileConfig:
+    lookback_bars_h1: int = 48         # 2 days of H1 bars for volume profile
+    num_bins: int = 50                 # price histogram resolution
+    value_area_pct: float = 0.70       # 70 % of volume defines the value area
+    poc_tolerance_pct: float = 0.001   # 0.1 % of price = "close enough" to POC
+
+@dataclass
+class OrderFlowConfig:
+    absorption_volume_mult: float = 2.0   # volume spike vs 20-bar avg
+    absorption_body_pct: float = 0.20     # body/range < 20 % = absorption candle
+    lookback_bars: int = 10               # bars back for delta divergence check
+    imbalance_delta_ratio: float = 0.30   # delta/volume ratio threshold
+    sl_atr_mult: float = 1.2
+    tp_atr_mult: float = 2.5
+
+@dataclass
+class MACDFibConfig:
+    macd_fast: int = 12
+    macd_slow: int = 26
+    macd_signal: int = 9
+    fib_tolerance_pct: float = 0.003   # 0.3 % of swing range = "at the fib level"
+    swing_lookback: int = 20           # H4 bars to find the swing high/low
+
+@dataclass
 class AllStrategyConfigs:
     liquidity_sweep: LiquiditySweepConfig = field(default_factory=LiquiditySweepConfig)
     ema_pullback: EMAPullbackConfig = field(default_factory=EMAPullbackConfig)
     orb_breakout: ORBBreakoutConfig = field(default_factory=ORBBreakoutConfig)
     ema_momentum: EMAMomentumConfig = field(default_factory=EMAMomentumConfig)
+    volume_profile: VolumeProfileConfig = field(default_factory=VolumeProfileConfig)
+    order_flow: OrderFlowConfig = field(default_factory=OrderFlowConfig)
+    macd_fib: MACDFibConfig = field(default_factory=MACDFibConfig)
 
 STRATEGY_CONFIGS = AllStrategyConfigs()
