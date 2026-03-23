@@ -1,18 +1,28 @@
 """
 Fabio Valentini — ORB (Opening Range Breakout) for NAS100
 
-Rules (Fabio Valentini methodology):
-  Session   : NYSE regular open — 09:30 ET (13:30 UTC)
-  IB window : first 30 minutes = 2 × M15 bars (09:30–10:00 ET)
-  Breakout  : M15 bar closes OUTSIDE the Initial Balance with:
-                • strong body (body/range ≥ body_ratio_min)
-                • volume expansion vs 20-bar average
-  Stop-loss : IB midpoint (Fabio's tight SL) ± sl_atr_mult × ATR buffer
-  Take-profit: breakout side ± IB_range × tp_ib_mult
-              (e.g. IB = 50 pts, tp_ib_mult=1.5 → TP = IB_high + 75 pts)
-  Filter    : skip sessions where IB range < min_ib_range_pts (dead market)
+KEY INSIGHT (from Fabio's playbook):
+  The edge is NOT in entering the breakout candle.
+  The edge is in entering the RETEST of the broken level after displacement.
 
-No lookahead — only closed M15 bars are used.
+Flow:
+  1. Build the 30-min Initial Balance (9:30–10:00 ET) from M15 bars.
+  2. Wait for price to DISPLACE beyond IB_high or IB_low with a strong close
+     and volume expansion (the "breakout bar").
+  3. Wait for price to PULL BACK and retest IB_high (now support) or IB_low
+     (now resistance).
+  4. Enter the RETEST BAR when it closes with momentum back in the
+     breakout direction and price is on the correct side of session VWAP.
+
+Stop-loss  : IB midpoint (Fabio's tight SL).
+Take-profit: breakout_level ± IB_range × tp_ib_mult (default 1.5).
+
+Filters:
+  - VWAP: long entries only above session VWAP; short entries only below.
+  - Skip if IB range < min_ib_range_pts (dead/too-tight market).
+  - Breakout bar must have body/range ≥ body_ratio_min to prove momentum.
+
+No lookahead — only closed M15 bars used.
 """
 from __future__ import annotations
 
@@ -33,7 +43,6 @@ from database import TradeDirection
 logger = logging.getLogger(__name__)
 
 CFG: ORBBreakoutConfig = STRATEGY_CONFIGS.orb_breakout
-
 NY_OPEN = time(NY_OPEN_UTC_HOUR, NY_OPEN_UTC_MINUTE)   # 13:30 UTC
 
 
@@ -51,52 +60,59 @@ def _atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 
 
 def _bar_time(ts) -> time:
-    if hasattr(ts, "time"):
-        return ts.time()
-    return ts.to_pydatetime().time()
+    return ts.time() if hasattr(ts, "time") else ts.to_pydatetime().time()
 
 
 def _bar_date(ts):
-    if hasattr(ts, "date"):
-        return ts.date()
-    return ts.to_pydatetime().date()
+    return ts.date() if hasattr(ts, "date") else ts.to_pydatetime().date()
 
 
-def _get_todays_ib(m15: pd.DataFrame, ib_bars: int) -> Optional[Tuple[float, float, int]]:
-    """
-    Locate the most recent NYSE open IB on the M15 series.
-    Returns (ib_high, ib_low, ib_end_idx) — the index of the LAST IB bar.
-    Searches from the tail backwards to handle intraday / multi-day frames.
-    """
+def _session_vwap(m15: pd.DataFrame) -> float | None:
+    """Running VWAP from the most recent NYSE open bar."""
     ts = m15["timestamp"]
     n = len(m15)
-
     for i in range(n - 1, max(0, n - 300), -1):
         t = _bar_time(ts.iloc[i])
         d = _bar_date(ts.iloc[i])
-
         if t < NY_OPEN:
             continue
-
-        # Find the first M15 bar of this NY session day
-        session_start = i
-        while session_start > 0:
-            prev_d = _bar_date(ts.iloc[session_start - 1])
-            prev_t = _bar_time(ts.iloc[session_start - 1])
-            if prev_d != d or prev_t < NY_OPEN:
+        start = i
+        while start > 0:
+            if _bar_date(ts.iloc[start - 1]) != d or _bar_time(ts.iloc[start - 1]) < NY_OPEN:
                 break
-            session_start -= 1
+            start -= 1
+        segment = m15.iloc[start:]
+        typical = (segment["high"] + segment["low"] + segment["close"]) / 3.0
+        cum_vol = segment["volume"].cumsum().replace(0, np.nan)
+        vwap_series = (typical * segment["volume"]).cumsum() / cum_vol
+        return float(vwap_series.iloc[-1]) if not vwap_series.empty else None
+    return None
 
-        # IB = first `ib_bars` bars of this session
-        ib_end = session_start + ib_bars - 1
+
+def _get_ib(m15: pd.DataFrame, ib_bars: int) -> Optional[Tuple[float, float, float, int]]:
+    """
+    Locate the most recent NYSE-open Initial Balance.
+    Returns (ib_high, ib_low, ib_mid, ib_end_idx) or None.
+    """
+    ts = m15["timestamp"]
+    n = len(m15)
+    for i in range(n - 1, max(0, n - 300), -1):
+        t = _bar_time(ts.iloc[i])
+        d = _bar_date(ts.iloc[i])
+        if t < NY_OPEN:
+            continue
+        start = i
+        while start > 0:
+            if _bar_date(ts.iloc[start - 1]) != d or _bar_time(ts.iloc[start - 1]) < NY_OPEN:
+                break
+            start -= 1
+        ib_end = start + ib_bars - 1
         if ib_end >= n:
-            return None  # IB hasn't closed yet
-
-        ib_slice = m15.iloc[session_start: ib_end + 1]
-        ib_high = float(ib_slice["high"].max())
-        ib_low = float(ib_slice["low"].min())
-        return ib_high, ib_low, ib_end
-
+            return None
+        ib = m15.iloc[start: ib_end + 1]
+        hi = float(ib["high"].max())
+        lo = float(ib["low"].min())
+        return hi, lo, (hi + lo) / 2.0, ib_end
     return None
 
 
@@ -109,28 +125,24 @@ def detect(
     cfg: ORBBreakoutConfig = CFG,
 ) -> Optional["ORBSignal"]:
     """
-    Scan M15 for a confirmed Fabio Valentini ORB breakout on NAS100.
-    Returns an ORBSignal or None.
+    Returns an ORB signal when a post-IB RETEST setup is confirmed.
+    No signal is generated on the raw breakout bar — only on the retest.
     """
-    if len(m15) < 50:
+    if len(m15) < 60:
         return None
 
-    result = _get_todays_ib(m15, cfg.ib_bars_m15)
+    result = _get_ib(m15, cfg.ib_bars_m15)
     if result is None:
         return None
 
-    ib_high, ib_low, ib_end_idx = result
+    ib_high, ib_low, ib_mid, ib_end_idx = result
     ib_range = ib_high - ib_low
-    ib_mid = (ib_high + ib_low) / 2.0
 
-    # Skip dead-market sessions
     if ib_range < cfg.min_ib_range_pts:
-        logger.debug("ORB skipped — IB range %.1f pts < min %.1f", ib_range, cfg.min_ib_range_pts)
         return None
 
-    # Only look at post-IB bars
-    post_ib = m15.iloc[ib_end_idx + 1:]
-    if len(post_ib) == 0:
+    post_ib = m15.iloc[ib_end_idx + 1:].reset_index(drop=True)
+    if len(post_ib) < 3:
         return None
 
     atr_val = float(_atr(m15).iloc[-1])
@@ -138,77 +150,106 @@ def detect(
         return None
 
     vol_ma = m15["volume"].rolling(20).mean()
+    session_vwap = _session_vwap(m15)
+
+    # Detect if a breakout occurred anywhere in post_ib (not just the last bar)
+    # "Breakout" = any bar that closed beyond IB with body ≥ body_ratio_min
+    breakout_long  = False
+    breakout_short = False
+
+    for _, row in post_ib.iloc[:-1].iterrows():   # exclude the trigger bar
+        bar_range = float(row["high"]) - float(row["low"])
+        body = abs(float(row["close"]) - float(row["open"]))
+        body_ratio = (body / bar_range) if bar_range > 0 else 0.0
+        if float(row["close"]) > ib_high and body_ratio >= cfg.body_ratio_min:
+            breakout_long = True
+        if float(row["close"]) < ib_low and body_ratio >= cfg.body_ratio_min:
+            breakout_short = True
 
     last = post_ib.iloc[-1]
     close = float(last["close"])
     open_ = float(last["open"])
-    hi = float(last["high"])
-    lo = float(last["low"])
+    lo    = float(last["low"])
+    hi    = float(last["high"])
     bar_range = hi - lo
     body = abs(close - open_)
     body_ratio = (body / bar_range) if bar_range > 0 else 0.0
     vol_spike = float(last["volume"]) > float(vol_ma.iloc[-1]) * cfg.volume_breakout_mult
 
-    # --- LONG breakout: close above IB high ---
-    if close > ib_high and open_ <= ib_high:
-        conviction = _score(vol_spike, body_ratio, (close - ib_high) / ib_range, cfg)
-        if conviction < 40:
-            return None
+    retest_tolerance = atr_val * 0.5
 
-        sl = (ib_mid - atr_val * cfg.sl_atr_mult) if cfg.sl_at_ib_mid else (ib_low - atr_val * cfg.sl_atr_mult)
-        tp = ib_high + ib_range * cfg.tp_ib_mult
+    # -----------------------------------------------------------------------
+    # LONG RETEST: breakout above IB high already happened,
+    # last bar returns to IB high (now support) and closes bullish
+    # VWAP filter: close must be above session VWAP
+    # -----------------------------------------------------------------------
+    if breakout_long:
+        at_ib_high = lo <= ib_high + retest_tolerance and hi >= ib_high - retest_tolerance
+        bullish_close = close > open_ and close > ib_high - retest_tolerance
+        vwap_ok = (session_vwap is None) or (close > session_vwap)
 
-        logger.info(
-            "ORB LONG  | IB=[%.0f–%.0f] range=%.0f pts SL=%.0f TP=%.0f conviction=%.0f",
-            ib_low, ib_high, ib_range, sl, tp, conviction,
-        )
-        return ORBSignal(
-            direction=TradeDirection.LONG,
-            entry_price=close,
-            stop_loss=sl,
-            take_profit=tp,
-            conviction=conviction,
-            atr=atr_val,
-            ib_high=ib_high, ib_low=ib_low, ib_mid=ib_mid, ib_range=ib_range,
-            bar_close_time=last["timestamp"],
-            notes=f"ORB long IB {ib_low:.0f}–{ib_high:.0f} ({ib_range:.0f}pts)",
-        )
+        if at_ib_high and bullish_close and vwap_ok:
+            conviction = _score(vol_spike, body_ratio, True, cfg)
+            if conviction >= 40:
+                sl = ib_mid - atr_val * cfg.sl_atr_mult
+                tp = ib_high + ib_range * cfg.tp_ib_mult
+                logger.info(
+                    "ORB LONG RETEST | IB=[%.0f–%.0f] retest=%.0f VWAP=%.0f conviction=%.0f",
+                    ib_low, ib_high, close, session_vwap or 0, conviction,
+                )
+                return ORBSignal(
+                    direction=TradeDirection.LONG,
+                    entry_price=close,
+                    stop_loss=sl,
+                    take_profit=tp,
+                    conviction=conviction,
+                    atr=atr_val,
+                    ib_high=ib_high, ib_low=ib_low, ib_mid=ib_mid, ib_range=ib_range,
+                    bar_close_time=last["timestamp"],
+                    notes=f"ORB long retest IB_high={ib_high:.0f} VWAP={session_vwap:.0f if session_vwap else 'N/A'}",
+                )
 
-    # --- SHORT breakout: close below IB low ---
-    if close < ib_low and open_ >= ib_low:
-        conviction = _score(vol_spike, body_ratio, (ib_low - close) / ib_range, cfg)
-        if conviction < 40:
-            return None
+    # -----------------------------------------------------------------------
+    # SHORT RETEST: breakout below IB low already happened,
+    # last bar returns to IB low (now resistance) and closes bearish
+    # VWAP filter: close must be below session VWAP
+    # -----------------------------------------------------------------------
+    if breakout_short:
+        at_ib_low = hi >= ib_low - retest_tolerance and lo <= ib_low + retest_tolerance
+        bearish_close = close < open_ and close < ib_low + retest_tolerance
+        vwap_ok = (session_vwap is None) or (close < session_vwap)
 
-        sl = (ib_mid + atr_val * cfg.sl_atr_mult) if cfg.sl_at_ib_mid else (ib_high + atr_val * cfg.sl_atr_mult)
-        tp = ib_low - ib_range * cfg.tp_ib_mult
-
-        logger.info(
-            "ORB SHORT | IB=[%.0f–%.0f] range=%.0f pts SL=%.0f TP=%.0f conviction=%.0f",
-            ib_low, ib_high, ib_range, sl, tp, conviction,
-        )
-        return ORBSignal(
-            direction=TradeDirection.SHORT,
-            entry_price=close,
-            stop_loss=sl,
-            take_profit=tp,
-            conviction=conviction,
-            atr=atr_val,
-            ib_high=ib_high, ib_low=ib_low, ib_mid=ib_mid, ib_range=ib_range,
-            bar_close_time=last["timestamp"],
-            notes=f"ORB short IB {ib_low:.0f}–{ib_high:.0f} ({ib_range:.0f}pts)",
-        )
+        if at_ib_low and bearish_close and vwap_ok:
+            conviction = _score(vol_spike, body_ratio, True, cfg)
+            if conviction >= 40:
+                sl = ib_mid + atr_val * cfg.sl_atr_mult
+                tp = ib_low - ib_range * cfg.tp_ib_mult
+                logger.info(
+                    "ORB SHORT RETEST | IB=[%.0f–%.0f] retest=%.0f VWAP=%.0f conviction=%.0f",
+                    ib_low, ib_high, close, session_vwap or 0, conviction,
+                )
+                return ORBSignal(
+                    direction=TradeDirection.SHORT,
+                    entry_price=close,
+                    stop_loss=sl,
+                    take_profit=tp,
+                    conviction=conviction,
+                    atr=atr_val,
+                    ib_high=ib_high, ib_low=ib_low, ib_mid=ib_mid, ib_range=ib_range,
+                    bar_close_time=last["timestamp"],
+                    notes=f"ORB short retest IB_low={ib_low:.0f} VWAP={session_vwap:.0f if session_vwap else 'N/A'}",
+                )
 
     return None
 
 
-def _score(vol_spike: bool, body_ratio: float, extension_ratio: float, cfg: ORBBreakoutConfig) -> float:
-    """0–100 conviction."""
+def _score(vol_spike: bool, body_ratio: float, vwap_aligned: bool, cfg: ORBBreakoutConfig) -> float:
     score = 30.0
     if vol_spike:
         score += 25.0
-    score += min(body_ratio / cfg.body_ratio_min * 20.0, 25.0)
-    score += min(extension_ratio * 60.0, 20.0)
+    score += min(body_ratio / cfg.body_ratio_min * 20.0, 20.0)
+    if vwap_aligned:
+        score += 25.0
     return min(score, 100.0)
 
 
