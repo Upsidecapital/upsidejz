@@ -1,6 +1,6 @@
 """
-GreymatterAI — APScheduler
-Wires up the 30-min heartbeat, trade-monitor, and 4-hour optimisation cycle.
+GreymatterAI — APScheduler (NAS100)
+Wires up the 15-min heartbeat (M15 bar close), trade-monitor, and 4-hour optimisation cycle.
 """
 from __future__ import annotations
 
@@ -83,6 +83,7 @@ async def _monitor_open_trades() -> None:
             if m15 is None or len(m15) == 0:
                 continue
             current_price = float(m15.iloc[-1]["close"])
+            from config import MT5_POINT_VALUE
             if trade.direction.value == "long":
                 if current_price <= trade.stop_loss:
                     closed, win = True, False
@@ -95,9 +96,10 @@ async def _monitor_open_trades() -> None:
                     closed, win = True, True
             if closed:
                 close_price = current_price
-                pnl_usd = (close_price - trade.entry_price) * trade.lot_size
+                dist = close_price - trade.entry_price
                 if trade.direction.value == "short":
-                    pnl_usd = -pnl_usd
+                    dist = -dist
+                pnl_usd = dist * trade.lot_size * MT5_POINT_VALUE
 
         if closed and close_price is not None and pnl_usd is not None:
             pnl_r = pnl_usd / trade.risk_usd if trade.risk_usd else 0.0

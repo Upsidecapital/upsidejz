@@ -133,22 +133,21 @@ def _simulate_trade(
 
 
 def run_backtest(
+    m5: pd.DataFrame,
     m15: pd.DataFrame,
     h1: pd.DataFrame,
-    h4: pd.DataFrame,
     d1: pd.DataFrame,
     initial_equity: float = 200_000,
     risk_pct: float = 0.01,
+    point_value: float = 1.0,
     max_bars: Optional[int] = None,
 ) -> BacktestResult:
     """
-    Walk-forward backtest across all 7 strategies.
-    Each bar: generate signal on bar close, enter on next bar open.
+    NAS100 walk-forward backtest — Fabio Valentini 3-strategy suite:
+      ORB, IVB, Order Flow.
+    Each M15 bar: generate signal on bar close, enter at next bar open.
+    m5 is used for IVB volume profile (proportionally sliced with m15).
     """
-    import ema_momentum as em
-    import ema_pullbacks as ep
-    import liquidity_sweeps as ls
-    import macd_fib as mf
     import order_flow as of_
     import orb_breakout as orb
     import vp_ivb as vp
@@ -159,10 +158,8 @@ def run_backtest(
 
     n = min(len(m15), max_bars or len(m15))
     active_trade: Optional[BacktestTrade] = None
-    active_exit_bar: int = -1
 
     for i in range(100, n - 1):
-        # Close active trade if exit bar reached
         if active_trade and active_trade.exit_bar is not None and i >= active_trade.exit_bar:
             equity += active_trade.pnl_usd
             result.trades.append(active_trade)
@@ -170,26 +167,21 @@ def run_backtest(
             active_trade = None
 
         if active_trade is not None:
-            continue  # one trade at a time
+            continue
 
-        # Slice data up to and including bar i (no lookahead)
+        # Slice all timeframes up to bar i (no lookahead)
         m15_slice = m15.iloc[:i + 1].reset_index(drop=True)
-        h1_slice = h1.iloc[:min(len(h1), (i // 4) + 1)].reset_index(drop=True)
-        h4_slice = h4.iloc[:min(len(h4), (i // 16) + 1)].reset_index(drop=True)
+        # M5 has 3× as many bars as M15
+        m5_slice = m5.iloc[:min(len(m5), (i + 1) * 3)].reset_index(drop=True)
         d1_slice = d1.iloc[:min(len(d1), (i // 96) + 1)].reset_index(drop=True)
 
         risk_usd = equity * risk_pct
 
-        # Try all strategies, pick highest conviction
         all_signals = []
         for strategy_fn, args, name in [
             (orb.detect, (m15_slice,), "orb_breakout"),
-            (ls.detect, (m15_slice, d1_slice), "liquidity_sweep"),
-            (ep.detect, (m15_slice, h1_slice), "ema_pullback"),
-            (em.detect, (m15_slice, h4_slice, d1_slice), "ema_momentum"),
-            (vp.detect, (m15_slice, h1_slice), "volume_profile"),
+            (vp.detect, (m5_slice, m15_slice), "ivb"),
             (of_.detect, (m15_slice, d1_slice), "order_flow"),
-            (mf.detect, (m15_slice, h1_slice, h4_slice), "macd_fib"),
         ]:
             try:
                 sig = strategy_fn(*args)
@@ -201,10 +193,15 @@ def run_backtest(
         if not all_signals:
             continue
 
-        # Pick highest conviction signal
+        # Pick highest conviction
         signal, strat = max(all_signals, key=lambda x: x[0].conviction)
 
-        # Execute at next bar open (i+1)
+        # NAS100 lot sizing: risk_usd / (distance_pts × point_value)
+        distance = abs(signal.entry_price - signal.stop_loss)
+        lot = (risk_usd / (distance * point_value)) if distance > 0.5 else 0.0
+        if lot <= 0:
+            continue
+
         entry_bar = i + 1
         active_trade = _simulate_trade(
             bars=m15.iloc[entry_bar:].reset_index(drop=True),

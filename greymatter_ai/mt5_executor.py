@@ -1,11 +1,19 @@
 """
-GreymatterAI — MetaTrader 5 Executor
+GreymatterAI — MetaTrader 5 Executor (NAS100)
 Handles MT5 connection, order placement, and position management.
 
 Requirements:
   pip install MetaTrader5
   - Windows only (MT5 Python library is Windows-exclusive)
   - MetaTrader 5 terminal must be running and logged in
+
+NAS100 lot sizing:
+  lot_size is calculated by the orchestrator using:
+    lot = risk_usd / (distance_pts × MT5_POINT_VALUE)
+  Set MT5_POINT_VALUE in .env to match your broker's contract spec.
+  Common values:
+    ICMarkets / Pepperstone: MT5_POINT_VALUE=1.0 (USD per point per lot)
+    Some brokers:            MT5_POINT_VALUE=10.0
 """
 from __future__ import annotations
 
@@ -22,7 +30,7 @@ except ImportError:
     MT5_AVAILABLE = False
     logger.warning("MetaTrader5 package not installed — MT5 execution disabled. Run: pip install MetaTrader5")
 
-from config import MT5_LOGIN, MT5_PASSWORD, MT5_SERVER, MT5_SYMBOL, MT5_LOT_DIVISOR
+from config import MT5_LOGIN, MT5_PASSWORD, MT5_SERVER, MT5_SYMBOL
 
 _MAGIC = 20250101  # EA magic number to identify our trades
 
@@ -83,25 +91,20 @@ class MT5Executor:
     # ------------------------------------------------------------------
     def place_order(
         self,
-        direction: str,       # "long" or "short"
-        lot_size_oz: float,   # oz calculated by orchestrator
+        direction: str,     # "long" or "short"
+        lot_size: float,    # NAS100 lots (pre-calculated by orchestrator)
         stop_loss: float,
         take_profit: float,
         comment: str = "GreymatterAI",
     ) -> Optional[int]:
         """
-        Place a market order. Returns the MT5 ticket number, or None on failure.
-
-        Lot conversion: MT5 lots = lot_size_oz / MT5_LOT_DIVISOR
-        Default: 1 MT5 lot = 100 oz  →  MT5_LOT_DIVISOR=100
-        Adjust MT5_LOT_DIVISOR in .env if your broker uses a different contract size.
+        Place a NAS100 market order. Returns the MT5 ticket number, or None on failure.
+        lot_size is already in MT5 lots (calculated by SignalOrchestrator).
         """
         if not self._ensure_connected():
             return None
 
-        # Convert oz → MT5 lots, enforce broker minimum of 0.01
-        mt5_lots = round(lot_size_oz / MT5_LOT_DIVISOR, 2)
-        mt5_lots = max(mt5_lots, 0.01)
+        mt5_lots = max(round(lot_size, 2), 0.01)
 
         # Make sure the symbol is visible in Market Watch
         symbol_info = mt5.symbol_info(MT5_SYMBOL)
@@ -149,7 +152,7 @@ class MT5Executor:
             return None
 
         logger.info(
-            "MT5 order placed — ticket=%d  %s  %s  lots=%.2f  SL=%.2f  TP=%.2f",
+            "MT5 NAS100 order — ticket=%d  %s  %s  lots=%.2f  SL=%.0f  TP=%.0f",
             result.order, MT5_SYMBOL, direction.upper(), mt5_lots, stop_loss, take_profit,
         )
         return result.order
@@ -241,7 +244,7 @@ class MT5Executor:
         return float(info.equity) if info else None
 
     def get_open_tickets(self) -> list[int]:
-        """Return ticket numbers of all our open XAUUSD positions (by magic number)."""
+        """Return ticket numbers of all our open NAS100 positions (by magic number)."""
         if not self._ensure_connected():
             return []
         positions = mt5.positions_get(symbol=MT5_SYMBOL)

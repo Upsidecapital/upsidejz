@@ -37,7 +37,7 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
         # PostgreSQL requires explicit ALTER TYPE to add new enum values.
         # These are idempotent: IF NOT EXISTS was added in PostgreSQL 9.6.
-        new_values = ["volume_profile", "order_flow", "macd_fib"]
+        new_values = ["volume_profile", "order_flow", "macd_fib", "ivb"]
         for val in new_values:
             try:
                 await conn.execute(
@@ -78,6 +78,7 @@ class StrategyName(str, enum.Enum):
     VOLUME_PROFILE = "volume_profile"
     ORDER_FLOW = "order_flow"
     MACD_FIB = "macd_fib"
+    IVB = "ivb"
 
 
 # ---------------------------------------------------------------------------
