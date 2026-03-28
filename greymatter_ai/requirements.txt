@@ -14,3 +14,17 @@ websockets==13.1
 anthropic==0.40.0
 # MetaTrader5 is Windows-only — install manually on trading PC:
 # pip install MetaTrader5
+
+# ---------------------------------------------------------------------------
+# AI Learning providers (install the one matching your AI_PROVIDER setting)
+# ---------------------------------------------------------------------------
+# Gemini (free default — 15 RPM, 1M tokens/day):
+# pip install google-generativeai
+#
+# DeepSeek (free credits on signup, OpenAI-compatible):
+# pip install openai
+#
+# Groq (free tier — 14,400 req/day):
+# pip install groq
+#
+# Claude (requires Anthropic API billing — already listed above as anthropic)
