@@ -120,6 +120,18 @@ async def _monitor_open_trades() -> None:
             else:
                 _risk.on_trade_loss()
 
+            # ── Adaptive outcome tracking ──────────────────────────────────
+            try:
+                from outcome_tracker import outcome_tracker
+                setup_label = getattr(trade, "setup", None) or "default"
+                await outcome_tracker.record_outcome(
+                    strategy=trade.strategy.value,
+                    setup=setup_label,
+                    pnl_r=pnl_r,
+                )
+            except Exception as _ot_exc:
+                logger.warning("OutcomeTracker update failed: %s", _ot_exc)
+
             await send_close_alert(
                 strategy=trade.strategy.value,
                 direction=trade.direction.value,

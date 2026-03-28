@@ -10,11 +10,16 @@ Risk rules:
 - If all 3 strategies fire the same direction → require conviction ≥ 70 to proceed
   (agreement = strong confirmation, not over-fit kill)
 - Stores every signal & decision in DB
+
+Adaptive weights:
+- outcome_tracker maintains per-setup EWMA win rates
+- conviction is multiplied by the setup's current multiplier (0.6–1.4) before ranking
+- raw_conviction is also stored so the UI can show both
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -34,6 +39,7 @@ from database import (
     AsyncSessionLocal, EquitySnapshot, Signal, StrategyName, Trade,
     TradeDirection, TradeStatus,
 )
+from outcome_tracker import outcome_tracker
 from risk_manager import RiskManager
 
 logger = logging.getLogger(__name__)
@@ -46,9 +52,11 @@ class CandidateSignal:
     entry_price: float
     stop_loss: float
     take_profit: float
-    conviction: float
+    conviction: float           # after adaptive weight applied
+    raw_conviction: float       # straight from strategy detector
     atr: float
     bar_close_time: datetime
+    setup: str = ""             # e.g. "retest_long", "delta_flip", "vah_retest_long"
     notes: str = ""
 
 
@@ -68,7 +76,7 @@ class SignalOrchestrator:
             logger.warning("System halted — skipping signal scan")
             return
 
-        # 1. Refresh data (5min for IVB, 15min + 1h + 1day for ORB/OF)
+        # 1. Refresh data
         data = await self._fetcher.refresh()
         m5  = data.get("5min")
         m15 = data.get("15min")
@@ -79,39 +87,42 @@ class SignalOrchestrator:
             logger.error("Missing timeframe data — skipping")
             return
 
-        # 2. Collect signals from all 3 Fabio Valentini strategies
+        # 2. Collect raw signals from all 3 strategies (pass h1/d1 for market structure)
         candidates: List[CandidateSignal] = []
-        candidates += self._collect_orb(m15)
-        candidates += self._collect_ivb(m5, m15)
-        candidates += self._collect_order_flow(m15, d1)
+        candidates += self._collect_orb(m15, d1, h1)
+        candidates += self._collect_ivb(m5, m15, d1, h1)
+        candidates += self._collect_order_flow(m15, d1, h1)
 
-        # 3. Persist all raw signals to DB
+        # 3. Apply adaptive conviction weights (non-blocking; neutral if no history)
+        candidates = await self._apply_adaptive_weights(candidates)
+
+        # 4. Persist all raw signals to DB
         await self._persist_signals(candidates)
 
         if not candidates:
             logger.info("No signals this cycle")
             return
 
-        # 4. When all 3 agree — require high conviction (≥ 70) to avoid noise
+        # 5. Direction gate — conflicting signals cancel; require minimum conviction
         candidates = self._conviction_gate(candidates)
         if not candidates:
             return
 
-        # 5. Pick highest conviction
+        # 6. Pick highest conviction
         candidates.sort(key=lambda c: c.conviction, reverse=True)
         best = candidates[0]
 
         logger.info(
-            "Top signal: %s %s conviction=%.0f",
-            best.strategy, best.direction, best.conviction,
+            "Top signal: %s %s setup=%s conviction=%.0f (raw=%.0f)",
+            best.strategy, best.direction, best.setup, best.conviction, best.raw_conviction,
         )
 
-        # 6. One position at a time
+        # 7. One position at a time
         if await self._has_open_trade():
             logger.info("Position already open — skipping")
             return
 
-        # 7. Daily drawdown gate
+        # 8. Daily drawdown gate
         equity = await self._current_equity()
         daily_pnl = await self._daily_pnl()
         if daily_pnl <= -(equity * MAX_DAILY_DRAWDOWN_PCT):
@@ -119,24 +130,27 @@ class SignalOrchestrator:
             self._risk.trigger_dd_kill()
             return
 
-        # 8. Position size (NAS100 points-based)
+        # 9. Position size
         risk_usd = equity * MAX_RISK_PER_TRADE_PCT
         lot_size = self._calc_lot_size(best.entry_price, best.stop_loss, risk_usd)
         if lot_size <= 0:
             logger.warning("Lot size zero — skipping")
             return
 
-        # 9. Fire
+        # 10. Fire
         await self._open_trade(best, lot_size, risk_usd)
         await self._snapshot_equity(equity, daily_pnl)
 
     # ------------------------------------------------------------------
     # Strategy collectors
     # ------------------------------------------------------------------
-    def _collect_orb(self, m15) -> List[CandidateSignal]:
+    def _collect_orb(self, m15, d1=None, h1=None) -> List[CandidateSignal]:
         try:
-            sig = orb_breakout.detect(m15)
+            sig = orb_breakout.detect(m15, d1=d1, h1=h1)
             if sig:
+                setup = getattr(sig, "setup", None) or (
+                    "retest_long" if sig.direction == TradeDirection.LONG else "retest_short"
+                )
                 return [CandidateSignal(
                     strategy=StrategyName.ORB_BREAKOUT,
                     direction=sig.direction,
@@ -144,17 +158,19 @@ class SignalOrchestrator:
                     stop_loss=sig.stop_loss,
                     take_profit=sig.take_profit,
                     conviction=sig.conviction,
+                    raw_conviction=sig.conviction,
                     atr=sig.atr,
                     bar_close_time=sig.bar_close_time,
+                    setup=setup,
                     notes=sig.notes,
                 )]
         except Exception as exc:
             logger.exception("ORB error: %s", exc)
         return []
 
-    def _collect_ivb(self, m5, m15) -> List[CandidateSignal]:
+    def _collect_ivb(self, m5, m15, d1=None, h1=None) -> List[CandidateSignal]:
         try:
-            sig = vp_ivb.detect(m5, m15)
+            sig = vp_ivb.detect(m5, m15, d1=d1, h1=h1)
             if sig:
                 return [CandidateSignal(
                     strategy=StrategyName.IVB,
@@ -163,17 +179,19 @@ class SignalOrchestrator:
                     stop_loss=sig.stop_loss,
                     take_profit=sig.take_profit,
                     conviction=sig.conviction,
+                    raw_conviction=sig.conviction,
                     atr=sig.atr,
                     bar_close_time=sig.bar_close_time,
+                    setup=sig.setup,
                     notes=sig.notes,
                 )]
         except Exception as exc:
             logger.exception("IVB error: %s", exc)
         return []
 
-    def _collect_order_flow(self, m15, d1) -> List[CandidateSignal]:
+    def _collect_order_flow(self, m15, d1=None, h1=None) -> List[CandidateSignal]:
         try:
-            sig = order_flow.detect(m15, d1)
+            sig = order_flow.detect(m15, d1=d1, h1=h1)
             if sig:
                 return [CandidateSignal(
                     strategy=StrategyName.ORDER_FLOW,
@@ -182,8 +200,10 @@ class SignalOrchestrator:
                     stop_loss=sig.stop_loss,
                     take_profit=sig.take_profit,
                     conviction=sig.conviction,
+                    raw_conviction=sig.conviction,
                     atr=sig.atr,
                     bar_close_time=sig.bar_close_time,
+                    setup=sig.setup,
                     notes=sig.notes,
                 )]
         except Exception as exc:
@@ -191,28 +211,43 @@ class SignalOrchestrator:
         return []
 
     # ------------------------------------------------------------------
+    # Adaptive weights
+    # ------------------------------------------------------------------
+    async def _apply_adaptive_weights(
+        self, candidates: List[CandidateSignal]
+    ) -> List[CandidateSignal]:
+        """
+        Multiply each signal's conviction by the setup's current EWMA multiplier.
+        The raw_conviction is preserved for logging and DB storage.
+        Signals below conviction 20 after weighting are dropped entirely.
+        """
+        weighted = []
+        for c in candidates:
+            mult = await outcome_tracker.get_multiplier(c.strategy.value, c.setup)
+            c.conviction = min(100.0, round(c.raw_conviction * mult, 1))
+            if c.conviction >= 20:
+                weighted.append(c)
+            else:
+                logger.info(
+                    "Signal %s/%s conviction %.0f → %.0f after %.2f× weight — dropped",
+                    c.strategy, c.setup, c.raw_conviction, c.conviction, mult,
+                )
+        return weighted
+
+    # ------------------------------------------------------------------
     # Filters
     # ------------------------------------------------------------------
     def _conviction_gate(self, candidates: List[CandidateSignal]) -> List[CandidateSignal]:
-        """
-        With only 3 strategies, full agreement is a strong signal — keep them
-        but require minimum conviction of 70 to guard against noise.
-        Conflicting direction signals cancel each other.
-        """
         from collections import Counter
         dir_counts = Counter(c.direction for c in candidates)
 
-        # Both directions represented → conflicting signals, discard all
         if len(dir_counts) > 1:
             max_dir, max_count = dir_counts.most_common(1)[0]
             if list(dir_counts.values()).count(max_count) > 1:
-                # True tie — skip
                 logger.info("Conflicting signals: %s — skipping", dict(dir_counts))
                 return []
-            # Keep the majority direction only
             candidates = [c for c in candidates if c.direction == max_dir]
 
-        # All agree — still check minimum conviction
         if all(c.conviction >= 70 for c in candidates):
             logger.info("All strategies agree (%d) — high-conviction entry", len(candidates))
         elif all(c.conviction < 40 for c in candidates):
@@ -226,15 +261,6 @@ class SignalOrchestrator:
     # ------------------------------------------------------------------
     @staticmethod
     def _calc_lot_size(entry: float, sl: float, risk_usd: float) -> float:
-        """
-        NAS100 CFD sizing:
-          distance_pts  = |entry − stop_loss|  (in index points)
-          risk per lot  = distance_pts × MT5_POINT_VALUE
-          lot_size      = risk_usd / (distance_pts × MT5_POINT_VALUE)
-
-        MT5_POINT_VALUE defaults to 1.0 (USD per point per lot).
-        Adjust via MT5_POINT_VALUE env var for your broker's contract spec.
-        """
         distance = abs(entry - sl)
         if distance < 0.5:
             return 0.0
@@ -251,12 +277,14 @@ class SignalOrchestrator:
                     strategy=c.strategy,
                     direction=c.direction,
                     conviction=c.conviction,
+                    raw_conviction=c.raw_conviction,
                     entry_price=c.entry_price,
                     stop_loss=c.stop_loss,
                     take_profit=c.take_profit,
                     atr=c.atr,
                     timeframe="15min",
                     bar_close_time=c.bar_close_time,
+                    setup=c.setup,
                     notes=c.notes,
                 )
                 db.add(sig)
@@ -308,6 +336,7 @@ class SignalOrchestrator:
         async with AsyncSessionLocal() as db:
             trade = Trade(
                 strategy=sig.strategy,
+                setup=sig.setup,
                 direction=sig.direction,
                 entry_price=sig.entry_price,
                 stop_loss=sig.stop_loss,
@@ -325,8 +354,8 @@ class SignalOrchestrator:
             await db.refresh(trade)
 
         logger.info(
-            "NAS100 trade opened: %s %s lots=%.2f ticket=%d",
-            sig.strategy, sig.direction, lot_size, ticket,
+            "NAS100 trade opened: %s %s setup=%s lots=%.2f ticket=%d",
+            sig.strategy, sig.direction, sig.setup, lot_size, ticket,
         )
         await send_trade_alert(trade=None, sig=sig, lot_size=lot_size, risk_usd=risk_usd)
 

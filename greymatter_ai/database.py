@@ -92,7 +92,8 @@ class Signal(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     strategy = Column(Enum(StrategyName), nullable=False)
     direction = Column(Enum(TradeDirection), nullable=False)
-    conviction = Column(Float, nullable=False)          # 0–100
+    conviction = Column(Float, nullable=False)          # 0–100 (after adaptive weight applied)
+    raw_conviction = Column(Float, nullable=True)       # conviction before adaptive weight
     entry_price = Column(Float, nullable=False)
     stop_loss = Column(Float, nullable=False)
     take_profit = Column(Float, nullable=False)
@@ -100,6 +101,7 @@ class Signal(Base):
     timeframe = Column(String(10), nullable=False)
     bar_close_time = Column(DateTime(timezone=True), nullable=False)
     executed = Column(Boolean, default=False, nullable=False)
+    setup = Column(String(60), nullable=True)           # e.g. "retest_long", "delta_flip"
     notes = Column(Text, nullable=True)
 
 
@@ -113,6 +115,7 @@ class Trade(Base):
     opened_at = Column(DateTime(timezone=True), nullable=True)
     closed_at = Column(DateTime(timezone=True), nullable=True)
     strategy = Column(Enum(StrategyName), nullable=False)
+    setup = Column(String(60), nullable=True)           # setup label for outcome tracking
     direction = Column(Enum(TradeDirection), nullable=False)
     entry_price = Column(Float, nullable=False)
     stop_loss = Column(Float, nullable=False)
@@ -126,6 +129,25 @@ class Trade(Base):
     conviction = Column(Float, nullable=False)
     mt5_ticket = Column(BigInteger, nullable=True)   # MT5 position ticket (None if MT5 not used)
     notes = Column(Text, nullable=True)
+
+
+class SetupPerformance(Base):
+    """
+    Per-setup adaptive weights — updated after every trade closes.
+    Tracks EWMA win rate and translates it to a conviction multiplier
+    that scales future signals from the same setup (0.6–1.4×).
+    """
+    __tablename__ = "setup_performance"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    strategy = Column(String(40), nullable=False)       # e.g. "orb_breakout"
+    setup = Column(String(60), nullable=False)          # e.g. "retest_long"
+    trades_total = Column(Integer, default=0, nullable=False)
+    trades_win = Column(Integer, default=0, nullable=False)
+    ewma_win_rate = Column(Float, default=0.5, nullable=False)  # EWMA; starts neutral
+    avg_pnl_r = Column(Float, default=0.0, nullable=False)      # simple running avg R
+    conviction_multiplier = Column(Float, default=1.0, nullable=False)  # applied to raw conviction
+    last_updated = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class EquitySnapshot(Base):

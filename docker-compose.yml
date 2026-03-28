@@ -1,0 +1,69 @@
+version: "3.9"
+
+# GreymatterAI — One-command startup
+# Usage:
+#   1. Copy greymatter_ai/.env.example → greymatter_ai/.env and fill in your secrets
+#   2. docker compose up -d
+#   3. Open http://localhost:8000 in your browser
+#
+# The trading engine auto-starts and is accessible at http://localhost:8000.
+# To run on a remote VPS/Railway, push the greymatter_ai/ image and set
+# DATABASE_URL to point to a managed PostgreSQL service.
+
+services:
+
+  # ── Trading Engine ────────────────────────────────────────────────
+  greymatter:
+    build:
+      context: ./greymatter_ai
+      dockerfile: Dockerfile
+    container_name: greymatter_engine
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./greymatter_ai/.env
+    environment:
+      # Override DATABASE_URL to use the local postgres service
+      DATABASE_URL: postgresql+asyncpg://greymatter:greymatter@postgres:5432/greymatter
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - greymatter_net
+
+  # ── PostgreSQL ────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: greymatter_postgres
+    environment:
+      POSTGRES_USER: greymatter
+      POSTGRES_PASSWORD: greymatter
+      POSTGRES_DB: greymatter
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"       # optional: expose for local tools (pgAdmin, DBeaver)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U greymatter -d greymatter"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - greymatter_net
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  greymatter_net:
+    driver: bridge
