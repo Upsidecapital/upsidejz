@@ -229,6 +229,71 @@ async def setup_performance():
 
 
 # ---------------------------------------------------------------------------
+# API — Claude AI Insights
+# ---------------------------------------------------------------------------
+@app.get("/api/insights")
+async def get_insights(limit: int = 10):
+    """Return the last N Claude AI analysis results."""
+    from sqlalchemy import select, desc, text
+    from database import AsyncSessionLocal
+    import json as _json
+    try:
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(
+                text(
+                    "SELECT id, created_at, setup_adjustments, risk_adjustment, "
+                    "avoid_conditions, focus_setups, summary, confidence "
+                    "FROM claude_insights ORDER BY created_at DESC LIMIT :lim"
+                ),
+                {"lim": limit},
+            )).fetchall()
+        return [
+            {
+                "id": r[0],
+                "created_at": r[1].isoformat() if hasattr(r[1], "isoformat") else str(r[1]),
+                "setup_adjustments": _json.loads(r[2]) if r[2] else {},
+                "risk_adjustment": r[3],
+                "avoid_conditions": _json.loads(r[4]) if r[4] else [],
+                "focus_setups": _json.loads(r[5]) if r[5] else [],
+                "summary": r[6],
+                "confidence": r[7],
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        logger.warning("insights endpoint error: %s", exc)
+        return []
+
+
+@app.get("/api/account")
+async def account_info():
+    """Return account size, risk settings, and small-account flags."""
+    from config import (
+        ACCOUNT_SIZE_USD, MAX_RISK_PER_TRADE_PCT, MAX_DAILY_DRAWDOWN_PCT,
+        MAX_CONSECUTIVE_LOSERS, MAX_LOT_SIZE, MIN_LOT_SIZE, IS_SMALL_ACCOUNT,
+        LEVERAGE,
+    )
+    risk_per_trade = ACCOUNT_SIZE_USD * MAX_RISK_PER_TRADE_PCT
+    daily_cap      = ACCOUNT_SIZE_USD * MAX_DAILY_DRAWDOWN_PCT
+    # Try live equity from MT5
+    from mt5_executor import executor as _mt5
+    live_equity = _mt5.get_account_equity()
+    return {
+        "account_size_usd":     ACCOUNT_SIZE_USD,
+        "live_equity_usd":      live_equity,
+        "is_small_account":     IS_SMALL_ACCOUNT,
+        "risk_per_trade_pct":   MAX_RISK_PER_TRADE_PCT * 100,
+        "risk_per_trade_usd":   round(risk_per_trade, 2),
+        "daily_dd_cap_pct":     MAX_DAILY_DRAWDOWN_PCT * 100,
+        "daily_dd_cap_usd":     round(daily_cap, 2),
+        "max_consecutive_losers": MAX_CONSECUTIVE_LOSERS,
+        "max_lot_size":         MAX_LOT_SIZE,
+        "min_lot_size":         MIN_LOT_SIZE,
+        "leverage":             LEVERAGE,
+    }
+
+
+# ---------------------------------------------------------------------------
 # API — System events
 # ---------------------------------------------------------------------------
 @app.get("/api/events")
@@ -430,6 +495,23 @@ tbody tr:hover { background: var(--surface2); }
     </div>
   </div>
 
+  <!-- Claude AI Insights + Account Info -->
+  <div class="two-col" style="margin-top:4px">
+    <div class="section">
+      <div class="section-header">
+        <h2>Claude AI Learning Insights</h2>
+        <span id="insightAge" style="font-size:.70rem;color:#8b949e"></span>
+      </div>
+      <div id="insightPanel" style="padding:16px 18px">
+        <p style="color:#8b949e;font-size:.8rem">Insights appear after every 5 closed trades. Claude analyses patterns and adjusts conviction weights automatically.</p>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-header"><h2>Account &amp; Risk Settings</h2></div>
+      <div id="accountPanel" style="padding:16px 18px"></div>
+    </div>
+  </div>
+
 </div><!-- /.page -->
 
 <script>
@@ -579,9 +661,87 @@ function connectWS() {
   setInterval(() => { if (ws.readyState === 1) ws.send('ping'); }, 30000);
 }
 
+// ── Claude AI Insights ────────────────────────────────────────────────
+async function loadInsights() {
+  const rows = await fetch('/api/insights?limit=1').then(r => r.json()).catch(() => []);
+  const panel = document.getElementById('insightPanel');
+  const ageEl = document.getElementById('insightAge');
+  if (!rows.length) return;
+  const ins = rows[0];
+  ageEl.textContent = 'Last analysis ' + fmtTs(ins.created_at);
+  const conf = Math.round((ins.confidence || 0) * 100);
+  const riskPct = Math.round((ins.risk_adjustment || 1) * 100);
+  const riskC = riskPct >= 90 ? 'positive' : riskPct >= 70 ? '' : 'negative';
+
+  // Setup adjustments list
+  const adjEntries = Object.entries(ins.setup_adjustments || {});
+  const adjHtml = adjEntries.length
+    ? adjEntries.map(([k, v]) => {
+        const vc = v >= 1.1 ? 'mult-high' : v <= 0.9 ? 'mult-low' : 'mult-mid';
+        return `<span style="margin-right:10px"><span class="${vc}">${v}×</span> <span style="color:#8b949e;font-size:.72rem">${k}</span></span>`;
+      }).join('')
+    : '<span style="color:#8b949e">—</span>';
+
+  // Avoid conditions
+  const avoidHtml = (ins.avoid_conditions || []).length
+    ? ins.avoid_conditions.map(c => `<li style="color:#8b949e;font-size:.75rem;margin-bottom:3px">${c}</li>`).join('')
+    : '<li style="color:#8b949e;font-size:.75rem">None flagged</li>';
+
+  panel.innerHTML = `
+    <div style="margin-bottom:14px;padding:12px;background:#1c2128;border-radius:8px;border-left:3px solid #f0b429">
+      <div style="font-size:.78rem;line-height:1.5;color:#e6edf3">${ins.summary || 'No summary available.'}</div>
+    </div>
+    <div style="display:flex;gap:20px;margin-bottom:14px;flex-wrap:wrap">
+      <div><div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:4px">Risk Adjustment</div>
+        <span class="${riskC}" style="font-size:1.2rem;font-weight:700">${riskPct}%</span>
+        <span style="color:#8b949e;font-size:.72rem"> of baseline</span></div>
+      <div><div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:4px">AI Confidence</div>
+        <span style="font-size:1.2rem;font-weight:700;color:${conf >= 70 ? '#3fb950' : conf >= 40 ? '#f0b429' : '#8b949e'}">${conf}%</span></div>
+      ${ins.focus_setups && ins.focus_setups.length ? `<div><div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:4px">Focus Setups</div>
+        <span style="color:#58a6ff;font-size:.78rem">${ins.focus_setups.join(', ')}</span></div>` : ''}
+    </div>
+    <div style="margin-bottom:10px"><div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:6px">Setup Adjustments</div>
+      <div style="flex-wrap:wrap;display:flex">${adjHtml}</div></div>
+    <div><div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:6px">Conditions to Avoid</div>
+      <ul style="list-style:disc;padding-left:16px">${avoidHtml}</ul></div>`;
+}
+
+// ── Account Info ──────────────────────────────────────────────────────
+async function loadAccount() {
+  const a = await fetch('/api/account').then(r => r.json()).catch(() => null);
+  if (!a) return;
+  const panel = document.getElementById('accountPanel');
+  const liveEq = a.live_equity_usd != null ? '$' + Number(a.live_equity_usd).toLocaleString('en-US', {maximumFractionDigits: 2}) : 'N/A (MT5 offline)';
+  const smallTag = a.is_small_account ? '<span style="background:#3a1a1a;color:#f85149;font-size:.65rem;padding:2px 6px;border-radius:4px;margin-left:6px">SMALL ACCOUNT</span>' : '';
+  panel.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+      <div style="background:#1c2128;border-radius:8px;padding:12px">
+        <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:4px">Account Size</div>
+        <div style="font-size:1.1rem;font-weight:700;color:#f0b429">$${Number(a.account_size_usd).toLocaleString()}${smallTag}</div>
+      </div>
+      <div style="background:#1c2128;border-radius:8px;padding:12px">
+        <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:4px">Live Equity (MT5)</div>
+        <div style="font-size:1.1rem;font-weight:700;color:#3fb950">${liveEq}</div>
+      </div>
+      <div style="background:#1c2128;border-radius:8px;padding:12px">
+        <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:4px">Risk Per Trade</div>
+        <div style="font-weight:700">$${a.risk_per_trade_usd} <span style="color:#8b949e;font-size:.72rem">(${a.risk_per_trade_pct}%)</span></div>
+      </div>
+      <div style="background:#1c2128;border-radius:8px;padding:12px">
+        <div style="font-size:.68rem;color:#8b949e;text-transform:uppercase;margin-bottom:4px">Daily DD Cap</div>
+        <div style="font-weight:700;color:#f85149">$${a.daily_dd_cap_usd} <span style="color:#8b949e;font-size:.72rem">(${a.daily_dd_cap_pct}%)</span></div>
+      </div>
+    </div>
+    <table style="font-size:.75rem">
+      <tr><td style="padding:4px 0;color:#8b949e;padding-right:20px">Halt after</td><td style="font-weight:600">${a.max_consecutive_losers} consecutive losses</td></tr>
+      <tr><td style="padding:4px 0;color:#8b949e">Lot range</td><td style="font-weight:600">${a.min_lot_size} – ${a.max_lot_size} lots</td></tr>
+      <tr><td style="padding:4px 0;color:#8b949e">Leverage</td><td style="font-weight:600">1:${a.leverage}</td></tr>
+    </table>
+    ${a.is_small_account ? '<div style="margin-top:12px;padding:10px;background:#2a1a1a;border:1px solid #5a2d2d;border-radius:6px;font-size:.73rem;color:#f85149">⚠ Small account mode: tighter risk limits active. Ensure broker offers micro lots (0.01) and 1:500+ leverage.</div>' : ''}`;
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────
 (async () => {
-  // Initial data loads
   const [statsData] = await Promise.all([
     fetch('/api/stats').then(r => r.json()).catch(() => ({})),
     initEquityChart(),
@@ -589,14 +749,17 @@ function connectWS() {
     loadSetupPerformance(),
     loadTrades(),
     loadEvents(),
+    loadInsights(),
+    loadAccount(),
   ]);
   if (statsData && statsData.equity_usd) applyStats(statsData);
 
-  // WebSocket for real-time stats updates
   connectWS();
 
-  // Periodic refresh of everything except stats (handled by WS)
-  setInterval(() => Promise.all([loadSignals(), loadTrades(), loadSetupPerformance(), loadEvents()]), 30000);
+  setInterval(() => Promise.all([
+    loadSignals(), loadTrades(), loadSetupPerformance(),
+    loadEvents(), loadInsights(), loadAccount(),
+  ]), 30000);
 })();
 </script>
 </body>

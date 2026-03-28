@@ -132,6 +132,17 @@ async def _monitor_open_trades() -> None:
             except Exception as _ot_exc:
                 logger.warning("OutcomeTracker update failed: %s", _ot_exc)
 
+            # ── Claude AI learning trigger ────────────────────────────────
+            try:
+                from claude_learning import claude_learn
+                from config import ACCOUNT_SIZE_USD
+                if claude_learn.notify_trade_closed():
+                    # Run analysis in background — non-blocking
+                    import asyncio
+                    asyncio.create_task(_run_claude_analysis(ACCOUNT_SIZE_USD))
+            except Exception as _cl_exc:
+                logger.warning("Claude learning trigger failed: %s", _cl_exc)
+
             await send_close_alert(
                 strategy=trade.strategy.value,
                 direction=trade.direction.value,
@@ -159,11 +170,29 @@ async def _run_optimisation() -> None:
         logger.exception("Optimisation error: %s", exc)
 
 
+async def _run_claude_analysis(account_size_usd: float) -> None:
+    """Triggered after every ANALYSIS_INTERVAL closed trades."""
+    try:
+        from claude_learning import claude_learn
+        insight = await claude_learn.analyse(account_size_usd)
+        if insight:
+            logger.info(
+                "Claude AI insight applied — risk_adj=%.2f confidence=%.2f: %s",
+                insight.risk_adjustment, insight.confidence, insight.summary[:100],
+            )
+    except Exception as exc:
+        logger.exception("Claude analysis error: %s", exc)
+
+
 async def start_scheduler() -> None:
     global _scheduler, _fetcher, _risk, _orchestrator
-    _fetcher = DataFetcher()
-    _risk = RiskManager()
+    _fetcher      = DataFetcher()
+    _risk         = RiskManager()
     _orchestrator = SignalOrchestrator(_fetcher, _risk)
+
+    # Print account size warnings (important for small accounts)
+    from config import print_account_warnings
+    print_account_warnings()
 
     connected = mt5_executor.connect()
     if connected:

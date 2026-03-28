@@ -13,8 +13,14 @@ Risk rules:
 
 Adaptive weights:
 - outcome_tracker maintains per-setup EWMA win rates
-- conviction is multiplied by the setup's current multiplier (0.6–1.4) before ranking
-- raw_conviction is also stored so the UI can show both
+- claude_learn provides AI-driven setup adjustments from trade pattern analysis
+- Combined multiplier = EWMA_multiplier × Claude_adjustment (clamped 0.5–1.5)
+- raw_conviction is stored so the dashboard can show both pre- and post-weight values
+
+Account awareness:
+- Reads live equity from MT5 (if connected) or falls back to ACCOUNT_SIZE_USD env var
+- For small accounts (<$1000), risk_usd is further scaled by Claude's risk_adjustment
+- Lot sizes are validated through RiskManager.validate_lot_size() before every order
 """
 from __future__ import annotations
 
@@ -29,10 +35,11 @@ import order_flow
 import orb_breakout
 import vp_ivb
 from alert_manager import send_trade_alert
+from claude_learning import claude_learn
 from mt5_executor import executor as mt5_executor
 from config import (
     ACCOUNT_SIZE_USD, MAX_DAILY_DRAWDOWN_PCT, MAX_RISK_PER_TRADE_PCT,
-    MT5_POINT_VALUE, STRATEGY_CONFIGS,
+    MT5_POINT_VALUE, STRATEGY_CONFIGS, IS_SMALL_ACCOUNT,
 )
 from data_fetcher import DataFetcher
 from database import (
@@ -130,11 +137,25 @@ class SignalOrchestrator:
             self._risk.trigger_dd_kill()
             return
 
-        # 9. Position size
-        risk_usd = equity * MAX_RISK_PER_TRADE_PCT
-        lot_size = self._calc_lot_size(best.entry_price, best.stop_loss, risk_usd)
+        # 9. Position size — live equity-aware + Claude AI risk adjustment
+        base_risk_usd   = equity * MAX_RISK_PER_TRADE_PCT
+        claude_risk_adj = claude_learn.get_risk_adjustment()   # 0.50–1.00
+        risk_usd        = base_risk_usd * claude_risk_adj
+
+        if IS_SMALL_ACCOUNT:
+            logger.info(
+                "Small account ($%.2f): base_risk=$%.2f claude_adj=%.2f → risk=$%.2f",
+                equity, base_risk_usd, claude_risk_adj, risk_usd,
+            )
+
+        if not self._risk.check_minimum_tradeable(risk_usd):
+            logger.warning("Risk $%.2f too small to trade — skipping", risk_usd)
+            return
+
+        raw_lot  = self._calc_lot_size(best.entry_price, best.stop_loss, risk_usd)
+        lot_size = self._risk.validate_lot_size(raw_lot, risk_usd)
         if lot_size <= 0:
-            logger.warning("Lot size zero — skipping")
+            logger.warning("Lot size zero after validation — skipping")
             return
 
         # 10. Fire
@@ -217,20 +238,27 @@ class SignalOrchestrator:
         self, candidates: List[CandidateSignal]
     ) -> List[CandidateSignal]:
         """
-        Multiply each signal's conviction by the setup's current EWMA multiplier.
-        The raw_conviction is preserved for logging and DB storage.
-        Signals below conviction 20 after weighting are dropped entirely.
+        Three-layer conviction adjustment:
+          1. EWMA adaptive weight (outcome_tracker) — 0.6–1.4×
+          2. Claude AI adjustment (claude_learn)     — 0.5–1.5×
+          3. Combined multiplier clamped to 0.4–1.5 range
+        raw_conviction is preserved for dashboard display.
+        Signals below 20 after all adjustments are dropped.
         """
         weighted = []
         for c in candidates:
-            mult = await outcome_tracker.get_multiplier(c.strategy.value, c.setup)
-            c.conviction = min(100.0, round(c.raw_conviction * mult, 1))
+            ewma_mult   = await outcome_tracker.get_multiplier(c.strategy.value, c.setup)
+            claude_mult = claude_learn.get_setup_adjustment(c.strategy.value, c.setup)
+            combined    = max(0.4, min(1.5, ewma_mult * claude_mult))
+            c.conviction = min(100.0, round(c.raw_conviction * combined, 1))
             if c.conviction >= 20:
                 weighted.append(c)
             else:
                 logger.info(
-                    "Signal %s/%s conviction %.0f → %.0f after %.2f× weight — dropped",
-                    c.strategy, c.setup, c.raw_conviction, c.conviction, mult,
+                    "Signal %s/%s conviction %.0f → %.0f "
+                    "(EWMA×%.2f Claude×%.2f combined×%.2f) — dropped",
+                    c.strategy, c.setup, c.raw_conviction, c.conviction,
+                    ewma_mult, claude_mult, combined,
                 )
         return weighted
 
@@ -299,6 +327,15 @@ class SignalOrchestrator:
         return count > 0
 
     async def _current_equity(self) -> float:
+        """
+        Prefer live MT5 account equity (always up-to-date after each trade).
+        Falls back to last DB snapshot, then to ACCOUNT_SIZE_USD env var.
+        This ensures position sizing always reflects the actual current balance,
+        which matters especially for small accounts where every dollar counts.
+        """
+        live_equity = mt5_executor.get_account_equity()
+        if live_equity and live_equity > 0:
+            return live_equity
         async with AsyncSessionLocal() as db:
             snap = (await db.execute(
                 select(EquitySnapshot).order_by(EquitySnapshot.recorded_at.desc()).limit(1)

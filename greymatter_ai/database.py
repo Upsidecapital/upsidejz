@@ -171,3 +171,23 @@ class SystemEvent(Base):
     event_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     event_type = Column(String(50), nullable=False)   # e.g. KILL_SWITCH, RESTART, OPTIMISE
     detail = Column(Text, nullable=True)
+
+
+class ClaudeInsight(Base):
+    """
+    Stored output from Claude AI trade analysis.
+    Each row represents one analysis run covering the last N closed trades.
+    The setup_adjustments and risk_adjustment are applied by the orchestrator
+    on top of the EWMA adaptive weights.
+    """
+    __tablename__ = "claude_insights"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    setup_adjustments = Column(Text, nullable=False)   # JSON: {"orb_breakout/retest_long": 1.2}
+    risk_adjustment   = Column(Float, default=1.0, nullable=False)  # 0.50–1.00
+    avoid_conditions  = Column(Text, nullable=True)    # JSON array of strings
+    focus_setups      = Column(Text, nullable=True)    # JSON array of strings
+    summary           = Column(Text, nullable=True)    # Human-readable analysis
+    confidence        = Column(Float, default=0.5, nullable=False)
+    raw_response      = Column(Text, nullable=True)

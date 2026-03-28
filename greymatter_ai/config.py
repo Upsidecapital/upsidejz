@@ -5,28 +5,31 @@ Never commit real values to source control.
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import List
 
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # API Credentials
 # ---------------------------------------------------------------------------
 TWELVE_DATA_API_KEY: str = os.environ.get("TWELVE_DATA_API_KEY", "")
-TELEGRAM_BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID: str = os.environ.get("TELEGRAM_CHAT_ID", "")
+TELEGRAM_BOT_TOKEN:  str = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID:    str = os.environ.get("TELEGRAM_CHAT_ID", "")
+CLAUDE_API_KEY:      str = os.environ.get("CLAUDE_API_KEY", "")   # for AI learning
 
 # ---------------------------------------------------------------------------
 # MetaTrader 5 Credentials
 # ---------------------------------------------------------------------------
-MT5_LOGIN: str = os.environ.get("MT5_LOGIN", "")
-MT5_PASSWORD: str = os.environ.get("MT5_PASSWORD", "")
-MT5_SERVER: str = os.environ.get("MT5_SERVER", "")          # e.g. "ICMarkets-Live"
-MT5_SYMBOL: str = os.environ.get("MT5_SYMBOL", "US100")    # broker name: US100 / NAS100 / US100Cash
+MT5_LOGIN:    str   = os.environ.get("MT5_LOGIN", "")
+MT5_PASSWORD: str   = os.environ.get("MT5_PASSWORD", "")
+MT5_SERVER:   str   = os.environ.get("MT5_SERVER", "")        # e.g. "ICMarkets-Live"
+MT5_SYMBOL:   str   = os.environ.get("MT5_SYMBOL", "US100")  # broker name: US100 / NAS100
 # NAS100 CFD point value per 1.0 lot (broker-dependent):
-#   ICMarkets/Pepperstone: 1 lot = $1/point  → set to 1.0
-#   Some brokers:          1 lot = $10/point → set to 10.0
+#   ICMarkets/Pepperstone: 1 lot = $1/point → MT5_POINT_VALUE=1.0
+#   Some brokers:          1 lot = $10/point → MT5_POINT_VALUE=10.0
 MT5_POINT_VALUE: float = float(os.environ.get("MT5_POINT_VALUE", "1.0"))
 DATABASE_URL: str = os.environ.get(
     "DATABASE_URL",
@@ -36,113 +39,145 @@ DATABASE_URL: str = os.environ.get(
 # ---------------------------------------------------------------------------
 # Account & Risk
 # ---------------------------------------------------------------------------
-ACCOUNT_SIZE_USD: float = float(os.environ.get("ACCOUNT_SIZE_USD", "200000"))
-MAX_DAILY_DRAWDOWN_PCT: float = 0.02          # 2 % of equity
-MAX_RISK_PER_TRADE_PCT: float = 0.01          # 1 R = 1 % of equity
-MAX_CONSECUTIVE_LOSERS: int = 8
-MIN_SHARPE_THRESHOLD: float = 0.5
+ACCOUNT_SIZE_USD: float = float(os.environ.get("ACCOUNT_SIZE_USD", "250"))
+
+# ── Small account detection ──────────────────────────────────────────────
+# Accounts < SMALL_ACCOUNT_THRESHOLD get tighter risk parameters automatically.
+SMALL_ACCOUNT_THRESHOLD: float = 1000.0
+IS_SMALL_ACCOUNT: bool = ACCOUNT_SIZE_USD < SMALL_ACCOUNT_THRESHOLD
+
+if IS_SMALL_ACCOUNT:
+    # Tight limits for micro accounts (<$1000)
+    MAX_DAILY_DRAWDOWN_PCT: float   = 0.03      # 3% DD cap ($7.50 on $250)
+    MAX_RISK_PER_TRADE_PCT: float   = 0.01      # 1% per trade ($2.50 on $250)
+    MAX_CONSECUTIVE_LOSERS: int     = 3         # halt after 3 losers (protect small capital)
+    MIN_SHARPE_THRESHOLD:   float   = 0.3       # looser Sharpe gate (fewer trades = noisy)
+    MAX_LOT_SIZE:           float   = 0.10      # hard cap — prevents oversizing on small margin
+else:
+    MAX_DAILY_DRAWDOWN_PCT: float   = 0.02      # 2% for normal accounts
+    MAX_RISK_PER_TRADE_PCT: float   = 0.01      # 1% per trade
+    MAX_CONSECUTIVE_LOSERS: int     = 8
+    MIN_SHARPE_THRESHOLD:   float   = 0.5
+    MAX_LOT_SIZE:           float   = 10.0
+
+# Absolute minimum lot size (broker floor — never go below this)
+MIN_LOT_SIZE: float = float(os.environ.get("MIN_LOT_SIZE", "0.01"))
+
+# ── Margin warning threshold ─────────────────────────────────────────────
+# NAS100 requires roughly $100–$500 margin per 0.01 lot depending on leverage.
+# At $250 with 1:500 leverage: 0.01 lot NAS100 ≈ $4–$6 margin. Fine.
+# At $250 with 1:30 leverage:  0.01 lot NAS100 ≈ $60 margin. Very tight.
+# We warn if margin-per-trade might be > 10% of account.
+LEVERAGE: int = int(os.environ.get("LEVERAGE", "500"))   # set to your broker's leverage
 
 # ---------------------------------------------------------------------------
 # Instrument — NAS100 (NASDAQ 100)
-# Twelve Data symbol: "QQQ" (ETF, best volume data) or "NDX" (index, no volume)
-# For live CFD data: check your broker's Twelve Data symbol mapping
 # ---------------------------------------------------------------------------
-SYMBOL: str = os.environ.get("TD_SYMBOL", "QQQ")      # Twelve Data ticker
-DISPLAY_SYMBOL: str = "NAS100"                          # shown in alerts / dashboard
-EXCHANGE: str = "NYSE"
+SYMBOL:         str = os.environ.get("TD_SYMBOL", "QQQ")
+DISPLAY_SYMBOL: str = "NAS100"
+EXCHANGE:       str = "NYSE"
 
-TIMEFRAMES: List[str] = ["5min", "15min", "1h", "1day"]
-
-# Minimum bars required per timeframe before any strategy fires
-MIN_BARS: dict[str, int] = {
-    "5min":  300,   # ~5 hours of 5-min bars (needed for IVB first-hour VP)
+TIMEFRAMES:  List[str]       = ["5min", "15min", "1h", "1day"]
+MIN_BARS:    dict[str, int]  = {
+    "5min":  300,
     "15min": 200,
     "1h":    100,
     "1day":  60,
 }
 
 # ---------------------------------------------------------------------------
-# Session times (UTC) for NAS100
+# Session times (UTC)
 # ---------------------------------------------------------------------------
-# Pre-market opens 04:00 ET = 09:00 UTC
-# NYSE regular session: 09:30 ET = 13:30 UTC  ← primary ORB session
-# NYSE close: 16:00 ET = 21:00 UTC
-NY_OPEN_UTC_HOUR: int = 13
-NY_OPEN_UTC_MINUTE: int = 30
-NY_CLOSE_UTC_HOUR: int = 21
+NY_OPEN_UTC_HOUR:    int = 13
+NY_OPEN_UTC_MINUTE:  int = 30
+NY_CLOSE_UTC_HOUR:   int = 21
 NY_CLOSE_UTC_MINUTE: int = 0
 
-# IVB window: first 60 minutes of NY session (9:30-10:30 ET)
 IVB_WINDOW_MINUTES: int = 60
-
-# ORB Initial Balance: first 30 minutes (9:30-10:00 ET = 2 × 15-min bars)
-ORB_IB_MINUTES: int = 30
+ORB_IB_MINUTES:     int = 30
 
 # ---------------------------------------------------------------------------
 # Scheduler
 # ---------------------------------------------------------------------------
-HEARTBEAT_SECONDS: int = 900   # 15 minutes (aligns with M15 bar close)
+HEARTBEAT_SECONDS:          int = 900  # 15 min (M15 bar boundary)
 OPTIMIZATION_INTERVAL_HOURS: int = 4
-OPTIMIZATION_LOOKBACK_DAYS: int = 30
+OPTIMIZATION_LOOKBACK_DAYS:  int = 30
+CLAUDE_ANALYSIS_INTERVAL:    int = 5   # run Claude analysis every N closed trades
 
 # ---------------------------------------------------------------------------
-# Strategy configs (Fabio Valentini ORB / IVB / Order Flow for NAS100)
+# Strategy configs
 # ---------------------------------------------------------------------------
 
 @dataclass
 class ORBBreakoutConfig:
-    """
-    Fabio Valentini ORB — NAS100 NY session open.
-    IB = first 30 min (9:30-10:00 ET). Breakout of IB with momentum confirmation.
-    SL = IB midpoint (not the far side). TP = IB extension × tp_ib_mult.
-    """
-    ib_minutes: int = 30                   # Initial Balance window
-    ib_bars_m15: int = 2                   # 30 min / 15 min = 2 bars
-    volume_breakout_mult: float = 1.5      # volume vs 20-bar avg for breakout bar
-    body_ratio_min: float = 0.55           # breakout bar body/range ≥ 55 % (momentum)
-    sl_at_ib_mid: bool = True              # True = SL at IB midpoint (Fabio style)
-    sl_atr_mult: float = 0.5              # extra buffer beyond IB mid (in ATR units)
-    tp_ib_mult: float = 1.5               # TP = IB high/low ± IB_range × mult
-    min_ib_range_pts: float = 20.0        # ignore sessions with IB range < 20 pts
+    """Fabio Valentini ORB — NAS100 NY session open."""
+    ib_minutes:           int   = 30
+    ib_bars_m15:          int   = 2
+    volume_breakout_mult: float = 1.5
+    body_ratio_min:       float = 0.55
+    sl_at_ib_mid:         bool  = True
+    sl_atr_mult:          float = 0.5
+    tp_ib_mult:           float = 1.5
+    min_ib_range_pts:     float = 20.0
+
 
 @dataclass
 class IVBConfig:
-    """
-    Fabio Valentini IVB — Initial Value Balance via first-hour volume profile.
-    Build VP from M5 bars of the first 60 min after NY open.
-    Two setups:
-      A. Rejection from VAH/VAL → trade back to POC
-      B. Re-entry into IVB after price has left and returns → trade to opposite extreme
-    """
-    ivb_window_minutes: int = 60           # first-hour IVB window
-    ivb_bars_m5: int = 12                  # 60 min / 5 min
-    num_bins: int = 30                     # volume histogram resolution
-    value_area_pct: float = 0.70           # 70 % of volume = value area
-    poc_tolerance_pts: float = 8.0         # price within 8 pts of POC = "at POC"
-    level_tolerance_pts: float = 10.0      # price within 10 pts of VAH/VAL
-    volume_confirm_mult: float = 1.3       # volume spike for confirmation
-    sl_buffer_pts: float = 8.0            # SL beyond VAL/VAH
-    min_va_range_pts: float = 25.0        # skip if value area is too narrow
+    """Fabio Valentini IVB — first-hour volume profile."""
+    ivb_window_minutes:  int   = 60
+    ivb_bars_m5:         int   = 12
+    num_bins:            int   = 30
+    value_area_pct:      float = 0.70
+    poc_tolerance_pts:   float = 8.0
+    level_tolerance_pts: float = 10.0
+    volume_confirm_mult: float = 1.3
+    sl_buffer_pts:       float = 8.0
+    min_va_range_pts:    float = 25.0
+
 
 @dataclass
 class OrderFlowConfig:
-    """
-    NAS100 Order Flow — delta imbalance, absorption, and exhaustion.
-    Uses VWAP as intraday bias filter.
-    """
-    absorption_volume_mult: float = 2.0    # volume spike vs 20-bar avg
-    absorption_body_pct: float = 0.20      # body/range < 20 % = absorption candle
-    lookback_bars: int = 8                 # bars back for delta divergence / exhaustion
-    imbalance_delta_ratio: float = 0.35    # delta/volume ratio for stacked imbalance
-    vwap_filter: bool = True               # require VWAP alignment for entries
-    sl_pts: float = 25.0                   # fixed SL in NAS100 points
-    tp_rr: float = 2.5                     # R:R multiple for TP
+    """NAS100 Order Flow — delta imbalance, absorption, exhaustion."""
+    absorption_volume_mult: float = 2.0
+    absorption_body_pct:    float = 0.20
+    lookback_bars:          int   = 8
+    imbalance_delta_ratio:  float = 0.35
+    vwap_filter:            bool  = True
+    sl_pts:                 float = 25.0
+    tp_rr:                  float = 2.5
 
 
 @dataclass
 class AllStrategyConfigs:
     orb_breakout: ORBBreakoutConfig = field(default_factory=ORBBreakoutConfig)
-    ivb: IVBConfig = field(default_factory=IVBConfig)
-    order_flow: OrderFlowConfig = field(default_factory=OrderFlowConfig)
+    ivb:          IVBConfig         = field(default_factory=IVBConfig)
+    order_flow:   OrderFlowConfig   = field(default_factory=OrderFlowConfig)
+
 
 STRATEGY_CONFIGS = AllStrategyConfigs()
+
+# ---------------------------------------------------------------------------
+# Startup warnings
+# ---------------------------------------------------------------------------
+def print_account_warnings() -> None:
+    """Log important warnings about the current account configuration."""
+    if IS_SMALL_ACCOUNT:
+        risk_usd  = ACCOUNT_SIZE_USD * MAX_RISK_PER_TRADE_PCT
+        daily_cap = ACCOUNT_SIZE_USD * MAX_DAILY_DRAWDOWN_PCT
+        logger.warning("=" * 60)
+        logger.warning("SMALL ACCOUNT MODE — $%.2f", ACCOUNT_SIZE_USD)
+        logger.warning("  Risk per trade : $%.2f (%.0f%%)", risk_usd, MAX_RISK_PER_TRADE_PCT * 100)
+        logger.warning("  Daily DD cap   : $%.2f (%.0f%%)", daily_cap, MAX_DAILY_DRAWDOWN_PCT * 100)
+        logger.warning("  Max lot size   : %.2f lots", MAX_LOT_SIZE)
+        logger.warning("  Halt after     : %d consecutive losses", MAX_CONSECUTIVE_LOSERS)
+        logger.warning("  Leverage set   : 1:%d", LEVERAGE)
+        est_margin = (ACCOUNT_SIZE_USD / LEVERAGE) * 100  # very rough NAS100 estimate
+        logger.warning("  Est. margin/0.01 lot ≈ $%.2f", est_margin)
+        if ACCOUNT_SIZE_USD < 100:
+            logger.critical(
+                "ACCOUNT TOO SMALL ($%.2f) — NAS100 minimum margin requirements "
+                "may exceed account balance. Ensure your broker offers 1:500+ leverage "
+                "and allows micro lots (0.01). Bot will generate signals but orders "
+                "may be rejected by MT5.", ACCOUNT_SIZE_USD
+            )
+        logger.warning("=" * 60)
