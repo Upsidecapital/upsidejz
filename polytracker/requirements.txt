@@ -1,0 +1,19 @@
+# Upside - Polytracker Dependencies
+# Python 3.11+ required
+
+# Polymarket CLOB API client
+py-clob-client>=0.3.0
+
+# Binance WebSocket
+websockets>=12.0
+
+# Telegram alerts
+aiohttp>=3.9.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Polygon/Web3 (for live trading)
+web3>=6.0.0
+
+# SQLite is built-in to Python
