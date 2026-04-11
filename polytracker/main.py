@@ -4,6 +4,9 @@ import argparse
 import asyncio
 import logging
 import sys
+import threading
+import time
+import webbrowser
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -110,6 +113,26 @@ Examples:
         help="Kelly fraction multiplier (default: 0.5 = half-Kelly)",
     )
 
+    # Web dashboard options
+    web_group = parser.add_argument_group("Dashboard")
+    web_group.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Dashboard host (default: 127.0.0.1)",
+    )
+    web_group.add_argument(
+        "--port",
+        type=int,
+        default=8787,
+        help="Dashboard port (default: 8787)",
+    )
+    web_group.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Do not automatically open browser",
+    )
+
     return parser.parse_args()
 
 
@@ -160,7 +183,26 @@ def main():
         )
 
     # Create and run bot
-    bot = PolyTracker(config, initial_portfolio=args.portfolio)
+    bot = PolyTracker(
+        config,
+        initial_portfolio=args.portfolio,
+        web_host=args.host,
+        web_port=args.port,
+    )
+
+    dashboard_url = f"http://{args.host}:{args.port}"
+    logger.info("Dashboard: %s", dashboard_url)
+
+    # Auto-open browser once the server is up
+    if not args.no_browser:
+        def _open_browser():
+            time.sleep(2.0)
+            try:
+                webbrowser.open(dashboard_url)
+            except Exception:
+                pass
+
+        threading.Thread(target=_open_browser, daemon=True).start()
 
     try:
         asyncio.run(bot.start())

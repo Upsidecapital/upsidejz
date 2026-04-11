@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Upside — Polytracker</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+</head>
+<body>
+  <div class="shell">
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-name">POLYTRACKER</span>
+        <nav class="tabs">
+          <a class="tab active" data-tab="dashboard">trading desk</a>
+          <a class="tab" data-tab="positions">positions</a>
+          <a class="tab" data-tab="trades">trade log</a>
+          <a class="tab" data-tab="system">system</a>
+        </nav>
+      </div>
+      <div class="topbar-right">
+        <span class="mode-pill" id="mode-pill">PAPER</span>
+        <span class="btc-badge" id="btc-badge">BTC $0</span>
+        <span class="eth-badge" id="eth-badge">ETH $0</span>
+        <span class="clock" id="clock">00:00:00</span>
+      </div>
+    </header>
+
+    <main class="grid">
+      <!-- LEFT / MAIN COLUMN -->
+      <section class="main-col">
+        <!-- Hero P&L block -->
+        <div class="hero-card">
+          <div class="hero-head">
+            <span class="hero-label">TOTAL P&amp;L</span>
+            <span class="hero-sub" id="hero-sub">+0.00% since inception</span>
+          </div>
+          <div class="hero-value" id="hero-pnl">$0.00</div>
+          <div class="kpi-row">
+            <div class="kpi">
+              <span class="kpi-label">TRADES</span>
+              <span class="kpi-val" id="kpi-trades">0</span>
+            </div>
+            <div class="kpi">
+              <span class="kpi-label">WIN RATE</span>
+              <span class="kpi-val" id="kpi-winrate">0.0%</span>
+            </div>
+            <div class="kpi">
+              <span class="kpi-label">AVG EDGE</span>
+              <span class="kpi-val" id="kpi-edge">0.00%</span>
+            </div>
+            <div class="kpi">
+              <span class="kpi-label">DRAWDOWN</span>
+              <span class="kpi-val" id="kpi-dd">0.00%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Equity curve chart -->
+        <div class="chart-card">
+          <div class="chart-head">
+            <span class="chart-title">EQUITY CURVE</span>
+            <span class="chart-meta" id="chart-meta">Awaiting data…</span>
+          </div>
+          <canvas id="equity-chart" width="900" height="240"></canvas>
+        </div>
+
+        <!-- Asset cards (per timeframe/asset) -->
+        <div class="asset-grid" id="asset-grid">
+          <!-- Filled by JS -->
+        </div>
+
+        <!-- Trade table -->
+        <div class="table-card">
+          <div class="table-head">
+            <span class="chart-title">RECENT TRADES</span>
+            <span class="chart-meta">Last 10</span>
+          </div>
+          <div class="table-wrap">
+            <table class="trade-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Asset</th>
+                  <th>TF</th>
+                  <th>Dir</th>
+                  <th>Side</th>
+                  <th>Size</th>
+                  <th>Entry</th>
+                  <th>Edge</th>
+                  <th class="right">P&amp;L</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="trade-tbody">
+                <tr><td colspan="10" class="empty">No trades yet</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT / SIDEBAR COLUMN -->
+      <aside class="side-col">
+        <div class="portfolio-card">
+          <div class="portfolio-head">
+            <span class="portfolio-label">PORTFOLIO VALUE</span>
+            <span class="portfolio-time" id="portfolio-time">—</span>
+          </div>
+          <div class="portfolio-value" id="portfolio-value">$0.00</div>
+          <div class="portfolio-sub">
+            <span id="portfolio-sub">Initial: $0 · Peak: $0</span>
+          </div>
+
+          <div class="risk-block">
+            <div class="risk-row">
+              <span>Daily P&amp;L</span>
+              <span id="daily-pnl">$0.00</span>
+            </div>
+            <div class="risk-row">
+              <span>Daily DD</span>
+              <span id="daily-dd">0.00%</span>
+            </div>
+            <div class="risk-row">
+              <span>Total DD</span>
+              <span id="total-dd">0.00%</span>
+            </div>
+            <div class="risk-row">
+              <span>Open Positions</span>
+              <span id="open-positions">0</span>
+            </div>
+            <div class="risk-row">
+              <span>Kill Switch</span>
+              <span id="kill-switch" class="ok">ARMED</span>
+            </div>
+          </div>
+
+          <div class="mini-chart-wrap">
+            <canvas id="mini-chart" width="300" height="80"></canvas>
+          </div>
+        </div>
+
+        <div class="status-card">
+          <div class="status-head">
+            <span class="chart-title">SYSTEM STATUS</span>
+            <span class="dot" id="status-dot"></span>
+          </div>
+          <div class="status-rows">
+            <div class="risk-row">
+              <span>Bot</span>
+              <span id="status-bot">INITIALIZING</span>
+            </div>
+            <div class="risk-row">
+              <span>Binance WS</span>
+              <span id="status-binance">—</span>
+            </div>
+            <div class="risk-row">
+              <span>Polymarket</span>
+              <span id="status-polymarket">—</span>
+            </div>
+            <div class="risk-row">
+              <span>Uptime</span>
+              <span id="status-uptime">00:00:00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="activity-card">
+          <div class="activity-head">
+            <span class="chart-title">ACTIVITY</span>
+          </div>
+          <div class="activity-list" id="activity-list">
+            <div class="empty">No activity yet</div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <span>UPSIDE — POLYTRACKER · Polymarket Latency Arbitrage</span>
+      <span id="connection-state" class="conn">CONNECTING…</span>
+    </footer>
+  </div>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

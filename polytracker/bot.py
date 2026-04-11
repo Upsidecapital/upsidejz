@@ -7,13 +7,14 @@ import time
 
 from .binance_feed import BinanceFeed, PriceUpdate
 from .config import BotConfig
-from .dashboard import Dashboard
 from .kelly import KellySizer
 from .polymarket_client import PolymarketClient
 from .risk_manager import RiskManager
 from .strategy import ArbitrageStrategy
 from .telegram_alerts import TelegramAlerts
 from .trade_logger import TradeLogger, TradeRecord
+from .web.server import run_server
+from .web.state import store
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,17 @@ class PolyTracker:
     trades when a significant edge is detected.
     """
 
-    def __init__(self, config: BotConfig, initial_portfolio: float = 500.0):
+    def __init__(
+        self,
+        config: BotConfig,
+        initial_portfolio: float = 500.0,
+        web_host: str = "127.0.0.1",
+        web_port: int = 8787,
+    ):
         self.config = config
         self.initial_portfolio = initial_portfolio
+        self.web_host = web_host
+        self.web_port = web_port
 
         # Core components
         self.binance = BinanceFeed(config)
@@ -41,18 +50,15 @@ class PolyTracker:
         self.strategy = ArbitrageStrategy(
             config, self.binance, self.polymarket, self.kelly, initial_portfolio
         )
-        self.dashboard = Dashboard(
-            self.risk,
-            self.trade_logger,
-            config.dashboard_refresh,
-            is_paper=not config.trading.is_live,
-        )
 
         # State
         self._running = False
         self._scan_interval = 5.0  # Seconds between strategy scans
-        self._snapshot_interval = 60.0  # Seconds between portfolio snapshots
+        self._snapshot_interval = 30.0  # Seconds between portfolio snapshots
+        self._state_refresh = 2.0  # Seconds between state publishes
         self._tasks: list[asyncio.Task] = []
+        self._asset_stats: dict[str, dict] = {}
+        self._last_prices: dict[str, float] = {}
 
     async def start(self):
         """Initialize and start all bot components."""
@@ -73,35 +79,58 @@ class PolyTracker:
             "  Daily Drawdown Limit: -%.1f%%",
             self.config.trading.daily_drawdown_limit_pct,
         )
+        logger.info(
+            "  Dashboard: http://%s:%d", self.web_host, self.web_port
+        )
         logger.info("=" * 60)
+
+        # Prime the state store with initial values
+        await store.update(
+            is_paper=not self.config.trading.is_live,
+            initial_portfolio=self.initial_portfolio,
+            portfolio_value=self.initial_portfolio,
+            peak_portfolio_value=self.initial_portfolio,
+            daily_drawdown_limit=self.config.trading.daily_drawdown_limit_pct,
+            total_drawdown_limit=self.config.trading.total_drawdown_kill_pct,
+            bot_status="INITIALIZING",
+        )
+        await store.record_equity_point(self.initial_portfolio)
+        await store.log_activity("INFO", "Polytracker starting up")
 
         # Initialize components
         self.trade_logger.initialize()
-        await self.polymarket.initialize()
+        await self._safe_init_polymarket()
         await self.telegram.start()
 
         # Register risk alert handler
-        self.risk.on_alert(
-            lambda level, msg: asyncio.create_task(
-                self.telegram.alert_drawdown(level, msg)
-            )
-        )
+        self.risk.on_alert(self._on_risk_alert)
 
-        # Register price update handler for dashboard
+        # Register price update handler
         self.binance.on_price_update(self._on_price_update)
 
         # Set up signal handlers for graceful shutdown
         self._running = True
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
+        try:
+            loop = asyncio.get_event_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(
+                    sig, lambda: asyncio.create_task(self.stop())
+                )
+        except NotImplementedError:
+            pass  # Windows or restricted env
+
+        await store.update(bot_status="RUNNING")
+        await store.log_activity("INFO", "Bot status: RUNNING")
 
         # Launch concurrent tasks
         self._tasks = [
             asyncio.create_task(self.binance.start(), name="binance_feed"),
             asyncio.create_task(self._trading_loop(), name="trading_loop"),
             asyncio.create_task(self._snapshot_loop(), name="snapshot_loop"),
-            asyncio.create_task(self.dashboard.run(), name="dashboard"),
+            asyncio.create_task(self._state_loop(), name="state_publisher"),
+            asyncio.create_task(
+                run_server(self.web_host, self.web_port), name="web_server"
+            ),
         ]
 
         logger.info("All components started - bot is running")
@@ -112,6 +141,20 @@ class PolyTracker:
         except asyncio.CancelledError:
             pass
 
+    async def _safe_init_polymarket(self):
+        """Initialize Polymarket client - tolerate missing credentials in paper mode."""
+        try:
+            await self.polymarket.initialize()
+        except Exception as e:
+            if self.config.trading.is_live:
+                raise
+            logger.warning(
+                "Polymarket init failed in paper mode (%s) - continuing", e
+            )
+            await store.log_activity(
+                "WARN", f"Polymarket init failed: {str(e)[:80]}"
+            )
+
     async def stop(self):
         """Gracefully shut down all components."""
         if not self._running:
@@ -119,16 +162,28 @@ class PolyTracker:
 
         logger.info("Shutting down Polytracker...")
         self._running = False
-        self.dashboard.stop()
+        await store.update(bot_status="STOPPING")
+        await store.log_activity("INFO", "Shutting down")
 
         # Cancel open orders if live
         if self.config.trading.is_live:
-            await self.polymarket.cancel_all_orders()
+            try:
+                await self.polymarket.cancel_all_orders()
+            except Exception as e:
+                logger.error("Error cancelling orders: %s", e)
 
         # Stop components
-        await self.binance.stop()
-        await self.telegram.stop()
+        try:
+            await self.binance.stop()
+        except Exception:
+            pass
+        try:
+            await self.telegram.stop()
+        except Exception:
+            pass
         self.trade_logger.close()
+
+        await store.update(bot_status="STOPPED")
 
         # Cancel tasks
         for task in self._tasks:
@@ -139,18 +194,44 @@ class PolyTracker:
 
     async def _on_price_update(self, update: PriceUpdate):
         """Handle a new price update from Binance."""
-        self.dashboard.update_prices(
-            {k: v.price for k, v in self.binance.prices.items()}
+        prev = self._last_prices.get(update.symbol, update.price)
+        change = (
+            (update.price - prev) / prev * 100 if prev > 0 else 0.0
         )
+        self._last_prices[update.symbol] = update.price
+
+        new_prices = {
+            sym: round(p.price, 2)
+            for sym, p in self.binance.prices.items()
+        }
+        new_changes = dict(store.state.price_changes or {})
+        new_changes[update.symbol] = round(change, 3)
+
+        await store.update(prices=new_prices, price_changes=new_changes)
+
+    def _on_risk_alert(self, level: str, message: str):
+        """Fan out risk alerts to Telegram and activity feed."""
+        asyncio.create_task(self.telegram.alert_drawdown(level, message))
+        asyncio.create_task(store.log_activity(level, message))
 
     async def _trading_loop(self):
         """Main trading loop - scan for signals and execute trades."""
         # Wait for Binance prices to populate
         logger.info("Waiting for Binance price data...")
+        await store.log_activity("INFO", "Waiting for Binance price feed")
+
+        wait_start = time.time()
         while self._running and not self.binance.prices:
             await asyncio.sleep(1)
+            if time.time() - wait_start > 30:
+                await store.log_activity(
+                    "WARN", "Binance price feed still not ready"
+                )
+                wait_start = time.time()
 
-        logger.info("Price data received - starting trading loop")
+        if self._running:
+            logger.info("Price data received - starting trading loop")
+            await store.log_activity("INFO", "Price feed live - scanning")
 
         while self._running:
             try:
@@ -168,7 +249,6 @@ class PolyTracker:
                     if not self._running:
                         break
 
-                    # Pre-trade risk check
                     ok, check_reason = self.risk.pre_trade_check(
                         sig.position_size
                     )
@@ -176,14 +256,17 @@ class PolyTracker:
                         logger.debug("Trade rejected: %s", check_reason)
                         continue
 
-                    # Execute trade
                     await self._execute_signal(sig)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error("Trading loop error: %s", e, exc_info=True)
-                await self.telegram.alert_error(str(e))
+                await store.log_activity("ERROR", f"Loop: {str(e)[:80]}")
+                try:
+                    await self.telegram.alert_error(str(e))
+                except Exception:
+                    pass
 
             await asyncio.sleep(self._scan_interval)
 
@@ -192,41 +275,65 @@ class PolyTracker:
         order = self.strategy.create_order(sig)
         result = await self.polymarket.place_order(order)
 
-        if result.success:
-            # Log the trade
-            is_paper = not self.config.trading.is_live
-            record = TradeRecord(
-                trade_id=result.order_id,
-                timestamp=time.time(),
-                asset=sig.contract.asset,
-                timeframe=sig.contract.timeframe,
-                direction=sig.contract.direction,
-                side=sig.side,
-                entry_price=result.filled_price,
-                size_usdc=result.filled_size,
-                edge_pct=sig.edge_pct,
-                confidence=sig.confidence,
-                cex_price=sig.cex_price,
-                polymarket_price=sig.polymarket_price,
-                is_paper=is_paper,
+        if not result.success:
+            await store.log_activity(
+                "WARN",
+                f"Order failed: {result.error[:80] if result.error else 'unknown'}",
             )
-            self.trade_logger.log_trade(record)
+            return
 
-            # Update risk manager (paper P&L simulation)
-            # In paper mode, simulate P&L based on edge
-            if is_paper:
-                simulated_pnl = self._simulate_paper_pnl(sig)
-                self.risk.record_trade(simulated_pnl)
-                self.strategy.update_portfolio_value(
-                    self.risk.state.current_portfolio_value
-                )
-                self.trade_logger.update_trade(
-                    result.order_id, simulated_pnl, sig.polymarket_price
-                )
-            else:
-                self.risk.record_trade(0)  # Actual P&L tracked on close
+        is_paper = not self.config.trading.is_live
+        record = TradeRecord(
+            trade_id=result.order_id,
+            timestamp=time.time(),
+            asset=sig.contract.asset,
+            timeframe=sig.contract.timeframe,
+            direction=sig.contract.direction,
+            side=sig.side,
+            entry_price=result.filled_price,
+            size_usdc=result.filled_size,
+            edge_pct=sig.edge_pct,
+            confidence=sig.confidence,
+            cex_price=sig.cex_price,
+            polymarket_price=sig.polymarket_price,
+            is_paper=is_paper,
+        )
+        self.trade_logger.log_trade(record)
 
-            # Send Telegram alert
+        # In paper mode, simulate P&L immediately
+        if is_paper:
+            simulated_pnl = self._simulate_paper_pnl(sig)
+            self.risk.record_trade(simulated_pnl)
+            self.strategy.update_portfolio_value(
+                self.risk.state.current_portfolio_value
+            )
+            self.trade_logger.update_trade(
+                result.order_id, simulated_pnl, sig.polymarket_price
+            )
+            self._update_asset_stats(
+                sig.contract.asset,
+                sig.contract.timeframe,
+                simulated_pnl,
+                sig.edge_pct,
+            )
+            await store.log_activity(
+                "TRADE",
+                f"{sig.contract.asset} {sig.contract.timeframe} "
+                f"{sig.side} ${result.filled_size:.2f} "
+                f"edge {sig.edge_pct:.1f}% → "
+                f"{'+' if simulated_pnl >= 0 else ''}{simulated_pnl:.2f}",
+            )
+        else:
+            self.risk.record_trade(0)
+            await store.log_activity(
+                "TRADE",
+                f"{sig.contract.asset} {sig.contract.timeframe} "
+                f"{sig.side} ${result.filled_size:.2f} "
+                f"edge {sig.edge_pct:.1f}%",
+            )
+
+        # Telegram alert
+        try:
             await self.telegram.alert_trade(
                 asset=sig.contract.asset,
                 timeframe=sig.contract.timeframe,
@@ -239,35 +346,46 @@ class PolyTracker:
                 cex_price=sig.cex_price,
                 is_paper=is_paper,
             )
+        except Exception as e:
+            logger.debug("Telegram alert failed: %s", e)
+
+    def _update_asset_stats(
+        self, asset: str, timeframe: str, pnl: float, edge: float
+    ):
+        """Track per-asset-timeframe performance."""
+        key = f"{asset}_{timeframe}"
+        stat = self._asset_stats.get(
+            key,
+            {"pnl": 0.0, "trades": 0, "wins": 0, "edge": 0.0, "total_edge": 0.0},
+        )
+        stat["pnl"] = round(stat["pnl"] + pnl, 2)
+        stat["trades"] += 1
+        if pnl >= 0:
+            stat["wins"] += 1
+        stat["total_edge"] = stat.get("total_edge", 0) + edge
+        stat["edge"] = round(stat["total_edge"] / stat["trades"], 2)
+        self._asset_stats[key] = stat
 
     def _simulate_paper_pnl(self, sig) -> float:
-        """
-        Simulate P&L for paper trades based on edge.
-
-        Uses the edge percentage to probabilistically determine
-        win/loss, with the expected value matching the calculated edge.
-        """
+        """Simulate P&L for paper trades."""
         import random
 
-        # Win probability is the CEX-implied probability
         win_prob = sig.cex_implied_prob
         won = random.random() < win_prob
 
         if won:
-            # Profit = size * (1/price - 1) for YES bets
             if sig.side == "YES":
                 payout = sig.position_size / sig.polymarket_price
-                pnl = payout - sig.position_size
             else:
                 payout = sig.position_size / (1 - sig.polymarket_price)
-                pnl = payout - sig.position_size
+            pnl = payout - sig.position_size
         else:
             pnl = -sig.position_size
 
         return round(pnl, 2)
 
     async def _snapshot_loop(self):
-        """Periodically log portfolio snapshots."""
+        """Periodically log portfolio snapshots to DB + equity curve."""
         while self._running:
             try:
                 self.trade_logger.log_portfolio_snapshot(
@@ -277,7 +395,59 @@ class PolyTracker:
                     open_positions=self.risk.state.open_position_count,
                     win_rate=self.risk.win_rate,
                 )
+                await store.record_equity_point(
+                    self.risk.state.current_portfolio_value
+                )
             except Exception as e:
                 logger.debug("Snapshot error: %s", e)
 
             await asyncio.sleep(self._snapshot_interval)
+
+    async def _state_loop(self):
+        """Publish live bot state to the dashboard store."""
+        while self._running:
+            try:
+                stats = self.trade_logger.get_stats() or {}
+                recent = self.trade_logger.get_recent_trades(10)
+                open_pos = self.trade_logger.get_open_positions()
+                rs = self.risk.state
+
+                total_pnl_pct = (
+                    rs.total_pnl / self.initial_portfolio * 100
+                    if self.initial_portfolio > 0
+                    else 0.0
+                )
+
+                await store.update(
+                    bot_status=(
+                        "HALTED" if rs.trading_halted else "RUNNING"
+                    ),
+                    trading_halted=rs.trading_halted,
+                    halt_reason=rs.halt_reason,
+                    portfolio_value=rs.current_portfolio_value,
+                    peak_portfolio_value=rs.peak_portfolio_value,
+                    daily_pnl=rs.daily_pnl,
+                    total_pnl=rs.total_pnl,
+                    total_pnl_pct=total_pnl_pct,
+                    daily_drawdown_pct=abs(self.risk.daily_drawdown_pct),
+                    total_drawdown_pct=self.risk.total_drawdown_pct,
+                    total_trades=stats.get("total_trades", 0),
+                    wins=stats.get("wins", 0),
+                    losses=stats.get("losses", 0),
+                    win_rate=stats.get("win_rate", 0.0),
+                    trades_today=rs.trades_today,
+                    wins_today=rs.wins_today,
+                    losses_today=rs.losses_today,
+                    avg_edge=stats.get("avg_edge", 0.0),
+                    avg_pnl=stats.get("avg_pnl", 0.0),
+                    best_trade=stats.get("best_trade", 0.0),
+                    worst_trade=stats.get("worst_trade", 0.0),
+                    open_positions_count=rs.open_position_count,
+                    asset_stats=self._asset_stats,
+                    recent_trades=recent,
+                    open_positions=open_pos,
+                )
+            except Exception as e:
+                logger.debug("State publish error: %s", e)
+
+            await asyncio.sleep(self._state_refresh)
