@@ -20,4 +20,7 @@ web3>=6.0.0
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 
+# Native desktop window wrapper (makes bot feel like a real app)
+pywebview>=5.0
+
 # SQLite is built-in to Python
