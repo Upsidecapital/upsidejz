@@ -33,7 +33,7 @@
       </div>
     </header>
 
-    <main class="grid">
+    <main class="grid" id="view-dashboard" data-view="dashboard">
       <!-- LEFT / MAIN COLUMN -->
       <section class="main-col">
         <!-- Hero P&L block -->
@@ -182,6 +182,184 @@
         </div>
       </aside>
     </main>
+
+    <!-- POSITIONS VIEW -->
+    <section class="view" id="view-positions" data-view="positions" hidden>
+      <div class="view-header">
+        <h2 class="view-title">OPEN POSITIONS</h2>
+        <span class="view-sub" id="positions-sub">0 open</span>
+      </div>
+      <div class="table-card full">
+        <div class="table-wrap">
+          <table class="trade-table">
+            <thead>
+              <tr>
+                <th>Opened</th>
+                <th>Asset</th>
+                <th>TF</th>
+                <th>Dir</th>
+                <th>Side</th>
+                <th>Size</th>
+                <th>Entry</th>
+                <th>Edge</th>
+                <th class="right">Unrealized P&amp;L</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="positions-tbody">
+              <tr><td colspan="10" class="empty">No open positions</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TRADE LOG VIEW -->
+    <section class="view" id="view-trades" data-view="trades" hidden>
+      <div class="view-header">
+        <h2 class="view-title">TRADE LOG</h2>
+        <span class="view-sub" id="trades-sub">0 trades</span>
+      </div>
+      <div class="kpi-strip">
+        <div class="kpi">
+          <span class="kpi-label">TOTAL TRADES</span>
+          <span class="kpi-val" id="log-total">0</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">WINS</span>
+          <span class="kpi-val" id="log-wins">0</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">LOSSES</span>
+          <span class="kpi-val" id="log-losses">0</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">WIN RATE</span>
+          <span class="kpi-val" id="log-winrate">0.0%</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">BEST</span>
+          <span class="kpi-val" id="log-best">$0.00</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">WORST</span>
+          <span class="kpi-val" id="log-worst">$0.00</span>
+        </div>
+      </div>
+      <div class="table-card full">
+        <div class="table-wrap">
+          <table class="trade-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Asset</th>
+                <th>TF</th>
+                <th>Dir</th>
+                <th>Side</th>
+                <th>Size</th>
+                <th>Entry</th>
+                <th>Exit</th>
+                <th>Edge</th>
+                <th class="right">P&amp;L</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="trades-log-tbody">
+              <tr><td colspan="11" class="empty">No trades yet</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- SYSTEM VIEW -->
+    <section class="view" id="view-system" data-view="system" hidden>
+      <div class="view-header">
+        <h2 class="view-title">SYSTEM</h2>
+        <span class="view-sub" id="system-sub">Live diagnostics</span>
+      </div>
+      <div class="system-grid">
+        <div class="status-card full">
+          <div class="status-head">
+            <span class="chart-title">COMPONENT STATUS</span>
+            <span class="dot" id="sys-dot"></span>
+          </div>
+          <div class="status-rows">
+            <div class="risk-row">
+              <span>Bot</span>
+              <span id="sys-bot">INITIALIZING</span>
+            </div>
+            <div class="risk-row">
+              <span>Mode</span>
+              <span id="sys-mode">PAPER</span>
+            </div>
+            <div class="risk-row">
+              <span>Binance WebSocket</span>
+              <span id="sys-binance">—</span>
+            </div>
+            <div class="risk-row">
+              <span>Polymarket Client</span>
+              <span id="sys-polymarket">—</span>
+            </div>
+            <div class="risk-row">
+              <span>Trading Halted</span>
+              <span id="sys-halted">No</span>
+            </div>
+            <div class="risk-row">
+              <span>Halt Reason</span>
+              <span id="sys-halt-reason">—</span>
+            </div>
+            <div class="risk-row">
+              <span>Uptime</span>
+              <span id="sys-uptime">00:00:00</span>
+            </div>
+          </div>
+        </div>
+        <div class="status-card full">
+          <div class="status-head">
+            <span class="chart-title">RISK PARAMETERS</span>
+          </div>
+          <div class="status-rows">
+            <div class="risk-row">
+              <span>Daily Drawdown Limit</span>
+              <span id="sys-daily-dd-limit">20.00%</span>
+            </div>
+            <div class="risk-row">
+              <span>Total Drawdown Limit</span>
+              <span id="sys-total-dd-limit">40.00%</span>
+            </div>
+            <div class="risk-row">
+              <span>Current Daily DD</span>
+              <span id="sys-daily-dd">0.00%</span>
+            </div>
+            <div class="risk-row">
+              <span>Current Total DD</span>
+              <span id="sys-total-dd">0.00%</span>
+            </div>
+            <div class="risk-row">
+              <span>Initial Portfolio</span>
+              <span id="sys-initial">$0</span>
+            </div>
+            <div class="risk-row">
+              <span>Peak Portfolio</span>
+              <span id="sys-peak">$0</span>
+            </div>
+            <div class="risk-row">
+              <span>Current Value</span>
+              <span id="sys-current">$0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="activity-card full">
+        <div class="activity-head">
+          <span class="chart-title">ACTIVITY FEED</span>
+        </div>
+        <div class="activity-list" id="sys-activity-list">
+          <div class="empty">No activity yet</div>
+        </div>
+      </div>
+    </section>
 
     <footer class="footer">
       <span>UPSIDE — POLYTRACKER · Polymarket Latency Arbitrage</span>

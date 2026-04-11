@@ -9,6 +9,7 @@ from .binance_feed import BinanceFeed, PriceUpdate
 from .config import BotConfig
 from .kelly import KellySizer
 from .polymarket_client import PolymarketClient
+from .polysimulator import PolySimulator
 from .risk_manager import RiskManager
 from .strategy import ArbitrageStrategy
 from .telegram_alerts import TelegramAlerts
@@ -42,7 +43,12 @@ class PolyTracker:
 
         # Core components
         self.binance = BinanceFeed(config)
-        self.polymarket = PolymarketClient(config)
+        # In paper mode, use the PolySimulator so we don't need real API creds
+        self.simulator: PolySimulator | None = None
+        if not config.trading.is_live:
+            self.simulator = PolySimulator(self.binance)
+            logger.info("PolySimulator enabled for paper trading")
+        self.polymarket = PolymarketClient(config, simulator=self.simulator)
         self.kelly = KellySizer(config.trading)
         self.risk = RiskManager(config.trading, initial_portfolio)
         self.trade_logger = TradeLogger(config.db_path)
@@ -302,7 +308,11 @@ class PolyTracker:
 
         # In paper mode, simulate P&L immediately
         if is_paper:
-            simulated_pnl = self._simulate_paper_pnl(sig)
+            # Prefer the PolySimulator's resolved pnl when available
+            if self.simulator is not None and result.pnl != 0.0:
+                simulated_pnl = result.pnl
+            else:
+                simulated_pnl = self._simulate_paper_pnl(sig)
             self.risk.record_trade(simulated_pnl)
             self.strategy.update_portfolio_value(
                 self.risk.state.current_portfolio_value

@@ -263,6 +263,24 @@
     ctx.stroke();
   }
 
+  // ---------- View switching ----------
+  let currentView = "dashboard";
+
+  function switchView(name) {
+    currentView = name;
+    document.querySelectorAll("[data-view]").forEach((el) => {
+      if (el.dataset.view === name) {
+        el.hidden = false;
+      } else {
+        el.hidden = true;
+      }
+    });
+    document.querySelectorAll(".tab").forEach((t) => {
+      t.classList.toggle("active", t.dataset.tab === name);
+    });
+    if (lastState) render(lastState);
+  }
+
   // ---------- Render ----------
   function render(s) {
     // Mode pill
@@ -345,13 +363,156 @@
     // Activity
     renderActivity(s.activity || []);
 
-    // Charts
-    const canvas = $("equity-chart");
-    drawEquityChart(canvas, s.equity_curve || [], s.initial_portfolio);
-    $("chart-meta").textContent =
-      (s.equity_curve || []).length + " points · " + fmtSigned(s.total_pnl);
+    // Charts (only when dashboard view is visible — canvas has no size otherwise)
+    if (currentView === "dashboard") {
+      const canvas = $("equity-chart");
+      drawEquityChart(canvas, s.equity_curve || [], s.initial_portfolio);
+      $("chart-meta").textContent =
+        (s.equity_curve || []).length + " points · " + fmtSigned(s.total_pnl);
 
-    drawMiniChart($("mini-chart"), s.equity_curve || []);
+      drawMiniChart($("mini-chart"), s.equity_curve || []);
+    }
+
+    // Positions view
+    renderPositionsView(s);
+
+    // Trade log view
+    renderTradeLogView(s);
+
+    // System view
+    renderSystemView(s);
+  }
+
+  function renderPositionsView(s) {
+    const positions = s.open_positions || [];
+    $("positions-sub").textContent =
+      positions.length + " open" + (positions.length === 1 ? "" : "");
+    const tbody = $("positions-tbody");
+    if (!positions.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="10" class="empty">No open positions</td></tr>';
+      return;
+    }
+    tbody.innerHTML = positions
+      .map((t) => {
+        const time = fmtTime(t.timestamp);
+        const pnlCls =
+          t.pnl > 0 ? "pnl-pos" : t.pnl < 0 ? "pnl-neg" : "pnl-zero";
+        return `
+          <tr>
+            <td>${time}</td>
+            <td>${t.asset}</td>
+            <td>${t.timeframe}</td>
+            <td>${String(t.direction || "").toUpperCase()}</td>
+            <td>${t.side}</td>
+            <td>$${Number(t.size_usdc).toFixed(2)}</td>
+            <td>${Number(t.entry_price).toFixed(4)}</td>
+            <td>${Number(t.edge_pct).toFixed(2)}%</td>
+            <td class="${pnlCls}">${
+              t.pnl !== 0 ? fmtSigned(t.pnl) : "—"
+            }</td>
+            <td class="status-open">${t.status}</td>
+          </tr>
+        `;
+      })
+      .join("");
+  }
+
+  function renderTradeLogView(s) {
+    const trades = s.recent_trades || [];
+    $("trades-sub").textContent = (s.total_trades || 0) + " trades total";
+    $("log-total").textContent = s.total_trades || 0;
+    $("log-wins").textContent = s.wins || 0;
+    $("log-losses").textContent = s.losses || 0;
+    $("log-winrate").textContent = (s.win_rate || 0).toFixed(1) + "%";
+    $("log-best").textContent = fmtSigned(s.best_trade || 0);
+    $("log-worst").textContent = fmtSigned(s.worst_trade || 0);
+
+    const tbody = $("trades-log-tbody");
+    if (!trades.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="11" class="empty">No trades yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = trades
+      .map((t) => {
+        const time = fmtTime(t.timestamp);
+        const pnlCls =
+          t.pnl > 0 ? "pnl-pos" : t.pnl < 0 ? "pnl-neg" : "pnl-zero";
+        const statusCls =
+          t.status === "OPEN" ? "status-open" : "status-closed";
+        const exit =
+          t.exit_price && t.exit_price > 0
+            ? Number(t.exit_price).toFixed(4)
+            : "—";
+        return `
+          <tr>
+            <td>${time}</td>
+            <td>${t.asset}</td>
+            <td>${t.timeframe}</td>
+            <td>${String(t.direction || "").toUpperCase()}</td>
+            <td>${t.side}</td>
+            <td>$${Number(t.size_usdc).toFixed(2)}</td>
+            <td>${Number(t.entry_price).toFixed(4)}</td>
+            <td>${exit}</td>
+            <td>${Number(t.edge_pct).toFixed(2)}%</td>
+            <td class="${pnlCls}">${
+              t.pnl !== 0 ? fmtSigned(t.pnl) : "—"
+            }</td>
+            <td class="${statusCls}">${t.status}</td>
+          </tr>
+        `;
+      })
+      .join("");
+  }
+
+  function renderSystemView(s) {
+    $("sys-bot").textContent = s.bot_status;
+    $("sys-mode").textContent = s.is_paper ? "PAPER" : "LIVE";
+    $("sys-binance").textContent =
+      s.prices && (s.prices.BTC || s.prices.ETH) ? "LIVE" : "WAITING";
+    $("sys-polymarket").textContent =
+      s.bot_status === "RUNNING" ? "LIVE" : "INIT";
+    $("sys-halted").textContent = s.trading_halted ? "YES" : "No";
+    $("sys-halt-reason").textContent = s.halt_reason || "—";
+    $("sys-uptime").textContent = fmtUptime(s.uptime_seconds || 0);
+
+    $("sys-daily-dd-limit").textContent =
+      (s.daily_drawdown_limit || 0).toFixed(2) + "%";
+    $("sys-total-dd-limit").textContent =
+      (s.total_drawdown_limit || 0).toFixed(2) + "%";
+    $("sys-daily-dd").textContent =
+      (s.daily_drawdown_pct || 0).toFixed(2) + "%";
+    $("sys-total-dd").textContent =
+      (s.total_drawdown_pct || 0).toFixed(2) + "%";
+    $("sys-initial").textContent = fmtUSD(s.initial_portfolio || 0);
+    $("sys-peak").textContent = fmtUSD(s.peak_portfolio_value || 0);
+    $("sys-current").textContent = fmtUSD(s.portfolio_value || 0);
+
+    const dot = $("sys-dot");
+    if (s.trading_halted) dot.className = "dot bad";
+    else if (s.bot_status === "RUNNING") dot.className = "dot ok";
+    else dot.className = "dot warn";
+
+    // Mirror activity feed on the system page
+    const list = $("sys-activity-list");
+    const activity = s.activity || [];
+    if (!activity.length) {
+      list.innerHTML = '<div class="empty">No activity yet</div>';
+    } else {
+      const items = [...activity].reverse().slice(0, 100);
+      list.innerHTML = items
+        .map((a) => {
+          const time = fmtTime(a.timestamp);
+          return `
+            <div class="activity-item activity-level-${a.level}">
+              <span class="activity-time">${time}</span>
+              <span class="activity-msg">${escapeHTML(a.message)}</span>
+            </div>
+          `;
+        })
+        .join("");
+    }
   }
 
   function renderAssetCards(s) {
@@ -464,14 +625,12 @@
       .replace(/>/g, "&gt;");
   }
 
-  // ---------- Tabs (UI only) ----------
+  // ---------- Tabs (real view switching) ----------
   document.querySelectorAll(".tab").forEach((el) => {
     el.addEventListener("click", (e) => {
       e.preventDefault();
-      document
-        .querySelectorAll(".tab")
-        .forEach((t) => t.classList.remove("active"));
-      el.classList.add("active");
+      const target = el.dataset.tab || "dashboard";
+      switchView(target);
     });
   });
 

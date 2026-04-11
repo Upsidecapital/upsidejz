@@ -217,10 +217,10 @@ class TradeLogger:
         try:
             cursor = self._conn.execute("""
                 SELECT
-                    COUNT(*) as total_trades,
-                    SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
-                    SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END) as losses,
-                    SUM(CASE WHEN status = 'OPEN' THEN 1 ELSE 0 END) as open_count,
+                    COALESCE(COUNT(*), 0) as total_trades,
+                    COALESCE(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END), 0) as wins,
+                    COALESCE(SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END), 0) as losses,
+                    COALESCE(SUM(CASE WHEN status = 'OPEN' THEN 1 ELSE 0 END), 0) as open_count,
                     COALESCE(SUM(pnl), 0) as total_pnl,
                     COALESCE(AVG(pnl), 0) as avg_pnl,
                     COALESCE(MAX(pnl), 0) as best_trade,
@@ -232,16 +232,26 @@ class TradeLogger:
             """)
             row = cursor.fetchone()
             if row:
-                stats = dict(row)
-                total = stats["wins"] + stats["losses"]
+                stats = {k: (v if v is not None else 0) for k, v in dict(row).items()}
+                total = (stats.get("wins") or 0) + (stats.get("losses") or 0)
                 stats["win_rate"] = (
-                    stats["wins"] / total * 100 if total > 0 else 0
+                    (stats.get("wins") or 0) / total * 100 if total > 0 else 0.0
                 )
                 return stats
-            return {}
+            return {
+                "total_trades": 0, "wins": 0, "losses": 0, "open_count": 0,
+                "total_pnl": 0.0, "avg_pnl": 0.0, "best_trade": 0.0,
+                "worst_trade": 0.0, "avg_edge": 0.0, "total_volume": 0.0,
+                "win_rate": 0.0,
+            }
         except Exception as e:
             logger.error("Failed to fetch stats: %s", e)
-            return {}
+            return {
+                "total_trades": 0, "wins": 0, "losses": 0, "open_count": 0,
+                "total_pnl": 0.0, "avg_pnl": 0.0, "best_trade": 0.0,
+                "worst_trade": 0.0, "avg_edge": 0.0, "total_volume": 0.0,
+                "win_rate": 0.0,
+            }
 
     def close(self):
         """Close the database connection."""

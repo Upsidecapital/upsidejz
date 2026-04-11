@@ -4,12 +4,25 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Optional
 
-from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, OrderType
-from py_clob_client.order_builder.constants import BUY, SELL
+try:
+    from py_clob_client.client import ClobClient
+    from py_clob_client.clob_types import OrderArgs, OrderType
+    from py_clob_client.order_builder.constants import BUY, SELL
+    HAS_CLOB_CLIENT = True
+except Exception:  # pragma: no cover - optional dep in paper mode
+    ClobClient = None  # type: ignore
+    OrderArgs = None  # type: ignore
+    OrderType = None  # type: ignore
+    BUY = "BUY"  # type: ignore
+    SELL = "SELL"  # type: ignore
+    HAS_CLOB_CLIENT = False
 
 from .config import BotConfig
+
+if TYPE_CHECKING:
+    from .polysimulator import PolySimulator
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +62,8 @@ class TradeResult:
     order_id: str = ""
     filled_size: float = 0.0
     filled_price: float = 0.0
+    pnl: float = 0.0
+    exit_price: float = 0.0
     error: str = ""
     timestamp: float = field(default_factory=time.time)
 
@@ -56,16 +71,48 @@ class TradeResult:
 class PolymarketClient:
     """Client for interacting with Polymarket's CLOB API."""
 
-    def __init__(self, config: BotConfig):
+    def __init__(
+        self,
+        config: BotConfig,
+        simulator: Optional["PolySimulator"] = None,
+    ):
         self.config = config
         self._client: ClobClient | None = None
+        self._simulator = simulator
         self._contracts: dict[str, Contract] = {}
         self._last_api_call: float = 0.0
         self._lock = asyncio.Lock()
 
+    @property
+    def is_simulated(self) -> bool:
+        """True when running against the PolySimulator instead of live CLOB."""
+        return self._simulator is not None and self._client is None
+
     async def initialize(self):
-        """Initialize the CLOB client with API credentials."""
+        """Initialize the CLOB client with API credentials.
+
+        In paper mode without credentials (or without the py_clob_client
+        package), we fall back to the PolySimulator transparently.
+        """
         api = self.config.api
+
+        # Simulator mode: no real CLOB client needed
+        if self._simulator is not None and (
+            not HAS_CLOB_CLIENT or not api.polymarket_api_key
+        ):
+            logger.info(
+                "Polymarket client running in SIMULATOR mode "
+                "(no CLOB credentials required)"
+            )
+            self._client = None
+            return
+
+        if not HAS_CLOB_CLIENT:
+            logger.warning(
+                "py_clob_client not installed - Polymarket client disabled"
+            )
+            self._client = None
+            return
 
         if not api.polymarket_api_key:
             logger.warning(
@@ -90,6 +137,10 @@ class PolymarketClient:
             logger.info("Polymarket client initialized")
         except Exception as e:
             logger.error("Failed to initialize Polymarket client: %s", e)
+            if self._simulator is not None:
+                logger.warning("Falling back to SIMULATOR mode after CLOB failure")
+                self._client = None
+                return
             raise
 
     async def _rate_limit(self):
@@ -103,8 +154,29 @@ class PolymarketClient:
 
     async def fetch_crypto_contracts(self) -> list[Contract]:
         """Fetch BTC/ETH short-duration up/down contracts."""
+        contracts: list[Contract] = []
+
+        # Simulator path
+        if self.is_simulated:
+            try:
+                markets = await self._simulator.fetch_contracts()
+                for market in markets:
+                    contract = self._parse_crypto_contract(market)
+                    if contract:
+                        contracts.append(contract)
+                        self._contracts[contract.token_id] = contract
+                logger.debug("Fetched %d simulated contracts", len(contracts))
+            except Exception as e:
+                logger.error("Failed to fetch simulated contracts: %s", e)
+            return contracts
+
+        if self._client is None:
+            logger.warning(
+                "Polymarket client not initialized - no contracts available"
+            )
+            return contracts
+
         await self._rate_limit()
-        contracts = []
 
         try:
             loop = asyncio.get_event_loop()
@@ -127,6 +199,31 @@ class PolymarketClient:
 
     def _parse_crypto_contract(self, market: dict) -> Contract | None:
         """Parse a market into a Contract if it matches our criteria."""
+        # Fast path: simulator markets carry their SimContract back-reference
+        sim_contract = market.get("_sim_contract")
+        if sim_contract is not None:
+            tokens = market.get("tokens", [])
+            yes_token = next(
+                (t for t in tokens if t.get("outcome") == "Yes"), None
+            )
+            no_token = next(
+                (t for t in tokens if t.get("outcome") == "No"), None
+            )
+            yes_price = float(yes_token.get("price", 0.5)) if yes_token else 0.5
+            no_price = float(no_token.get("price", 0.5)) if no_token else 0.5
+            return Contract(
+                token_id=sim_contract.token_id,
+                condition_id=sim_contract.condition_id,
+                question=sim_contract.question,
+                asset=sim_contract.asset,
+                timeframe=sim_contract.timeframe,
+                direction=sim_contract.direction,
+                yes_price=yes_price,
+                no_price=no_price,
+                liquidity=sim_contract.liquidity,
+                last_updated=time.time(),
+            )
+
         question = market.get("question", "").upper()
 
         asset = None
@@ -214,6 +311,9 @@ class PolymarketClient:
         if not self.config.trading.is_live:
             return self._paper_trade(order)
 
+        if self.is_simulated:
+            return self._paper_trade(order)
+
         if not self._client:
             return TradeResult(success=False, error="Client not initialized")
 
@@ -282,11 +382,36 @@ class PolymarketClient:
             order.contract.question[:60],
         )
 
+        pnl = 0.0
+        exit_price = order.price
+        if self._simulator is not None:
+            try:
+                pnl, exit_price = self._simulator.simulate_trade_outcome(
+                    asset=order.contract.asset,
+                    timeframe=order.contract.timeframe,
+                    direction=order.contract.direction,
+                    side=order.side,
+                    entry_price=order.price,
+                    size=order.size,
+                )
+                logger.info(
+                    "[PAPER RESOLVED] %s %s %.2f -> pnl=%+.2f @ exit %.4f",
+                    order.side,
+                    order.contract.asset,
+                    order.size,
+                    pnl,
+                    exit_price,
+                )
+            except Exception as e:
+                logger.error("Simulator resolution failed: %s", e)
+
         return TradeResult(
             success=True,
             order_id=f"PAPER-{int(time.time() * 1000)}",
             filled_size=order.size,
             filled_price=order.price,
+            pnl=pnl,
+            exit_price=exit_price,
         )
 
     async def cancel_all_orders(self):
