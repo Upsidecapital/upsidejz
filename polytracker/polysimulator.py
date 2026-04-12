@@ -376,54 +376,66 @@ class PolySimulator:
         size: float,
     ) -> tuple[float, float]:
         """
-        Immediately resolve a trade based on what WILL happen using the
-        CURRENT (non-lagged) CEX price implied probability.
+        Resolve a paper trade using spread-based P&L.
 
         Returns (pnl, exit_price).
 
-        In real Polymarket, we'd have to wait for the round to close.
-        For paper trading we resolve immediately using the true implied
-        probability, so the bot's "edge" is the difference between the
-        stale Polymarket price (entry) and the true implied value (exit).
+        How it works (mirrors real Polymarket trading):
+        ─────────────────────────────────────────────────
+        The bot bought a contract at the LAGGED sim price (entry_price).
+        The "true" fair value is computed from the CURRENT CEX spot
+        price directly — NOT through the deque history used by the sim
+        pricer. This ensures the edge is real: the sim is stale, the
+        bot is fast.
+
+        P&L = (exit - entry) * shares  for YES side
         """
-        now = time.time()
         current = self.binance.get_price(asset)
         if not current:
             return 0.0, entry_price
 
-        # Get the round for this contract
         rnd = self._rounds.get(self._round_key(asset, timeframe))
         if rnd is None:
             return 0.0, entry_price
 
-        true_prob_up = self._cex_implied_probability(
-            asset, timeframe, rnd.reference_price, now
-        )
+        # Direct fair value: how far is the current price from the
+        # round's reference price?  Use a simple logistic model.
+        ref = rnd.reference_price
+        if ref <= 0:
+            return 0.0, entry_price
+
+        # Normalised move: positive = above reference, negative = below
+        move = (current - ref) / ref
+
+        # Scale by a sensitivity factor tuned to the timeframe
+        # (shorter timeframes → sharper response)
+        sensitivity = 8.0 if timeframe == "5m" else 5.0
+        z = move * sensitivity * 100  # convert fractional to bps scale
+
+        # Logistic → probability that price ends above reference
+        import math
+        prob_up = 1.0 / (1.0 + math.exp(-z))
 
         if direction == "up":
-            true_yes = true_prob_up
+            fair_yes = prob_up
         else:
-            true_yes = 1 - true_prob_up
+            fair_yes = 1.0 - prob_up
 
-        # Exit price = true fair value
-        exit_price = max(MIN_PRICE, min(MAX_PRICE, true_yes))
+        fair_yes = max(MIN_PRICE, min(MAX_PRICE, fair_yes))
 
-        # Probabilistic outcome using true_yes as win probability
-        won = random.random() < true_yes
+        # Execution noise
+        noise = random.gauss(0, 0.005)
+        exit_price = max(MIN_PRICE, min(MAX_PRICE, fair_yes + noise))
 
+        # Spread-based P&L
         if side == "YES":
-            if won:
-                # YES pays 1 per share; shares = size/entry_price
-                payout = size / entry_price if entry_price > 0 else 0
-                pnl = payout - size
-            else:
-                pnl = -size
-        else:  # NO
-            if not won:
-                payout = size / (1 - entry_price) if entry_price < 1 else 0
-                pnl = payout - size
-            else:
-                pnl = -size
+            shares = size / entry_price if entry_price > 0 else 0
+            pnl = (exit_price - entry_price) * shares
+        else:
+            no_entry = 1 - entry_price
+            no_exit = 1 - exit_price
+            shares = size / no_entry if no_entry > 0 else 0
+            pnl = (no_exit - no_entry) * shares
 
         return round(pnl, 2), round(exit_price, 4)
 

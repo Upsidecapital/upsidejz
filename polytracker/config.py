@@ -10,13 +10,13 @@ class TradingConfig:
     """Core trading parameters."""
 
     # Edge detection
-    min_edge_pct: float = 5.0  # Minimum edge percentage to execute
+    min_edge_pct: float = 3.0  # Minimum edge percentage to execute
     lag_threshold_pct: float = 3.0  # Polymarket odds lag vs CEX threshold
-    confidence_threshold: float = 0.85  # Minimum confidence score
+    confidence_threshold: float = 0.70  # Minimum confidence score
 
     # Position sizing
-    max_position_pct: float = 8.0  # Max position as % of portfolio
-    kelly_fraction: float = 0.5  # Half-Kelly for conservative sizing
+    max_position_pct: float = 4.0  # Max position as % of portfolio (conservative)
+    kelly_fraction: float = 0.25  # Quarter-Kelly for conservative sizing
     min_market_liquidity: float = 50_000.0  # Min market liquidity in USDC
 
     # Risk management

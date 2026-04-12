@@ -101,19 +101,25 @@ class ArbitrageStrategy:
         if poly_price <= 0 or poly_price >= 1:
             return None
 
-        # Calculate edge: difference between CEX-implied and Polymarket price
-        if contract.direction == "up":
-            edge_pct = (cex_implied_prob - poly_price) * 100
-            side = "YES" if edge_pct > 0 else "NO"
-        else:
-            edge_pct = (poly_price - cex_implied_prob) * 100
-            side = "NO" if edge_pct > 0 else "YES"
+        # Fair value of YES for this contract based on CEX
+        # (cex_implied_prob already accounts for direction via
+        #  _calculate_cex_implied_probability)
+        fair_yes = cex_implied_prob
 
-        edge_pct = abs(edge_pct)
+        # Edge = how far the Polymarket price is from fair value
+        # Positive means YES is underpriced → buy YES
+        # Negative means YES is overpriced → buy NO (NO is underpriced)
+        yes_edge = (fair_yes - poly_price) * 100  # pp
+
+        if yes_edge > 0:
+            side = "YES"
+            edge_pct = yes_edge
+        else:
+            side = "NO"
+            edge_pct = abs(yes_edge)
 
         # Check if edge exceeds the lag threshold
-        lag = abs(cex_implied_prob - poly_price) * 100
-        if lag < self.config.trading.lag_threshold_pct:
+        if edge_pct < self.config.trading.lag_threshold_pct:
             return None
 
         # Calculate confidence score
@@ -223,20 +229,28 @@ class ArbitrageStrategy:
         Calculate a confidence score (0-1) for a signal.
 
         Factors:
-        - Price history depth (more data = more confident)
-        - Edge magnitude (larger edge = more confident)
+        - Price history depth (need enough data to trust momentum)
+        - Edge magnitude (sweet spot: 3-15%; very large edges are noise)
         - Market liquidity
-        - Freshness of price data
+        - Lag magnitude
         """
         score = 0.0
 
-        # Data depth: 0-0.3
+        # Data depth: 0-0.35 — MUST have at least 15 data points
+        # to avoid trading on noise during startup
         history = self._last_prices.get(contract.asset, [])
-        depth_score = min(len(history) / self._price_window, 1.0) * 0.3
+        if len(history) < 15:
+            return 0.0  # Not enough data, refuse to trade
+        depth_score = min(len(history) / self._price_window, 1.0) * 0.35
         score += depth_score
 
-        # Edge magnitude: 0-0.3
-        edge_score = min(edge_pct / 15.0, 1.0) * 0.3
+        # Edge magnitude: 0-0.25
+        # Sweet spot is 3-15%. Edges >25% are suspicious (likely noise
+        # from the simulator early in a round or bad data).
+        if edge_pct > 25.0:
+            edge_score = 0.05  # Probably noise — very low confidence
+        else:
+            edge_score = min(edge_pct / 15.0, 1.0) * 0.25
         score += edge_score
 
         # Liquidity: 0-0.2

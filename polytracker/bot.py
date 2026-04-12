@@ -377,20 +377,27 @@ class PolyTracker:
         self._asset_stats[key] = stat
 
     def _simulate_paper_pnl(self, sig) -> float:
-        """Simulate P&L for paper trades."""
+        """Simulate P&L for paper trades using spread-based resolution.
+
+        P&L = (fair_value - entry_price) * shares, matching how a real
+        latency-arb trade would work: buy at the stale Polymarket price,
+        exit at the CEX-implied fair value.
+        """
         import random
 
-        win_prob = sig.cex_implied_prob
-        won = random.random() < win_prob
+        entry = sig.polymarket_price
+        fair = sig.cex_implied_prob
+        noise = random.gauss(0, 0.008)
+        exit_price = max(0.02, min(0.98, fair + noise))
 
-        if won:
-            if sig.side == "YES":
-                payout = sig.position_size / sig.polymarket_price
-            else:
-                payout = sig.position_size / (1 - sig.polymarket_price)
-            pnl = payout - sig.position_size
+        if sig.side == "YES":
+            shares = sig.position_size / entry if entry > 0 else 0
+            pnl = (exit_price - entry) * shares
         else:
-            pnl = -sig.position_size
+            no_entry = 1 - entry
+            no_exit = 1 - exit_price
+            shares = sig.position_size / no_entry if no_entry > 0 else 0
+            pnl = (no_exit - no_entry) * shares
 
         return round(pnl, 2)
 
