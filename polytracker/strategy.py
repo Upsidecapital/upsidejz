@@ -124,7 +124,7 @@ class ArbitrageStrategy:
 
         # Calculate confidence score
         confidence = self._calculate_confidence(
-            contract, cex_price, edge_pct, lag
+            contract, cex_price, edge_pct, edge_pct
         )
 
         # Apply thresholds
