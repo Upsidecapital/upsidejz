@@ -85,11 +85,14 @@ class ArbitrageStrategy:
         if cex_price is None:
             return None
 
-        # Track price history for momentum calculation
+        # Track price history for momentum calculation.
+        # Only add once per asset per scan to avoid duplicates
+        # (multiple contracts share the same asset).
         history = self._last_prices[contract.asset]
-        history.append(cex_price)
-        if len(history) > self._price_window:
-            history.pop(0)
+        if not history or history[-1] != cex_price:
+            history.append(cex_price)
+            if len(history) > self._price_window:
+                history.pop(0)
 
         # Calculate CEX-implied probability for this contract
         cex_implied_prob = self._calculate_cex_implied_probability(
@@ -245,12 +248,8 @@ class ArbitrageStrategy:
         score += depth_score
 
         # Edge magnitude: 0-0.25
-        # Sweet spot is 3-15%. Edges >25% are suspicious (likely noise
-        # from the simulator early in a round or bad data).
-        if edge_pct > 25.0:
-            edge_score = 0.05  # Probably noise — very low confidence
-        else:
-            edge_score = min(edge_pct / 15.0, 1.0) * 0.25
+        # Larger edges = more confident (the market is clearly stale)
+        edge_score = min(edge_pct / 30.0, 1.0) * 0.25
         score += edge_score
 
         # Liquidity: 0-0.2

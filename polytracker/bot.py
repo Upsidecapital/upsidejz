@@ -59,7 +59,7 @@ class PolyTracker:
 
         # State
         self._running = False
-        self._scan_interval = 5.0  # Seconds between strategy scans
+        self._scan_interval = 10.0  # Seconds between strategy scans
         self._snapshot_interval = 30.0  # Seconds between portfolio snapshots
         self._state_refresh = 2.0  # Seconds between state publishes
         self._tasks: list[asyncio.Task] = []

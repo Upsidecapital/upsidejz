@@ -40,10 +40,11 @@ TIMEFRAME_SECONDS = {
 
 # How stale the simulated Polymarket price is, in seconds.
 # This is the arbitrage window — bot reacts to CEX moves faster than sim.
-SIM_LAG_SECONDS = 4.0
+# Higher = more frequent and larger edge opportunities.
+SIM_LAG_SECONDS = 15.0
 
 # Extra noise on contract prices (stddev of a random walk).
-SIM_NOISE = 0.015
+SIM_NOISE = 0.02
 
 # Min / max clamp for contract prices
 MIN_PRICE = 0.02
@@ -289,9 +290,10 @@ class PolySimulator:
         noise = random.gauss(0, SIM_NOISE)
         price = max(MIN_PRICE, min(MAX_PRICE, base + noise))
 
-        # Smooth update to avoid wild jumps
+        # Smooth update — heavier weight on the old (stale) price
+        # keeps the sim "sticky" so edges persist longer
         if contract.yes_price > 0:
-            price = 0.6 * price + 0.4 * contract.yes_price
+            price = 0.4 * price + 0.6 * contract.yes_price
         return round(price, 4)
 
     # --------------------------------------------------------------
