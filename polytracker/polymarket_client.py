@@ -370,9 +370,16 @@ class PolymarketClient:
         )
 
     def _paper_trade(self, order: TradeOrder) -> TradeResult:
-        """Simulate a trade in paper mode."""
+        """Open a paper position that will be held until round expiry.
+
+        Instead of resolving immediately, the position stays OPEN and
+        the PolySimulator resolves it when the round expires — just
+        like real Polymarket binary contracts.
+        """
+        trade_id = f"PAPER-{int(time.time() * 1000)}"
+
         logger.info(
-            "[PAPER] %s %s %.2f USDC @ %.4f | %s %s %s",
+            "[PAPER OPEN] %s %s %.2f USDC @ %.4f | %s %s %s",
             order.side,
             order.contract.asset,
             order.size,
@@ -382,11 +389,10 @@ class PolymarketClient:
             order.contract.question[:60],
         )
 
-        pnl = 0.0
-        exit_price = order.price
         if self._simulator is not None:
             try:
-                pnl, exit_price = self._simulator.simulate_trade_outcome(
+                opened = self._simulator.open_position(
+                    trade_id=trade_id,
                     asset=order.contract.asset,
                     timeframe=order.contract.timeframe,
                     direction=order.contract.direction,
@@ -394,24 +400,23 @@ class PolymarketClient:
                     entry_price=order.price,
                     size=order.size,
                 )
-                logger.info(
-                    "[PAPER RESOLVED] %s %s %.2f -> pnl=%+.2f @ exit %.4f",
-                    order.side,
-                    order.contract.asset,
-                    order.size,
-                    pnl,
-                    exit_price,
-                )
+                if not opened:
+                    return TradeResult(
+                        success=False,
+                        error="No active round for position",
+                    )
             except Exception as e:
-                logger.error("Simulator resolution failed: %s", e)
+                logger.error("Simulator open_position failed: %s", e)
+                return TradeResult(success=False, error=str(e))
 
+        # Position is OPEN — pnl=0 until the round resolves
         return TradeResult(
             success=True,
-            order_id=f"PAPER-{int(time.time() * 1000)}",
+            order_id=trade_id,
             filled_size=order.size,
             filled_price=order.price,
-            pnl=pnl,
-            exit_price=exit_price,
+            pnl=0.0,
+            exit_price=0.0,
         )
 
     async def cancel_all_orders(self):

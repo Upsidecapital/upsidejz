@@ -83,6 +83,41 @@ class SimRound:
     down_contract: SimContract
 
 
+@dataclass
+class OpenPosition:
+    """A position held until the round resolves."""
+
+    trade_id: str
+    asset: str
+    timeframe: str
+    direction: str  # "up" or "down"
+    side: str  # "YES" or "NO"
+    entry_price: float
+    size: float
+    round_id: int
+    round_end: float
+    reference_price: float
+    opened_at: float = field(default_factory=time.time)
+
+
+@dataclass
+class ResolvedPosition:
+    """A position that has been resolved at round expiry."""
+
+    trade_id: str
+    asset: str
+    timeframe: str
+    direction: str
+    side: str
+    entry_price: float
+    size: float
+    pnl: float
+    exit_price: float  # 1.0 (won) or 0.0 (lost)
+    won: bool
+    close_price: float  # CEX price at expiry
+    reference_price: float
+
+
 class PolySimulator:
     """
     Deterministic(ish) synthetic Polymarket feed keyed off live Binance prices.
@@ -101,6 +136,8 @@ class PolySimulator:
             "ETH": deque(maxlen=300),
         }
         self._next_round_id = 1
+        self._open_positions: list[OpenPosition] = []
+        self._resolved_queue: list[ResolvedPosition] = []
 
     # --------------------------------------------------------------
     # Price history tracking
@@ -196,15 +233,80 @@ class PolySimulator:
         return existing
 
     def _resolve_round(self, rnd: SimRound, current_price: float):
-        """A round has expired — log its outcome (bot already got paid via resolve_trade)."""
+        """A round has expired — resolve all open positions for this round.
+
+        Binary resolution:
+        - "UP" contract: YES wins if close > reference, NO wins otherwise
+        - "DOWN" contract: YES wins if close < reference, NO wins otherwise
+        - Winner gets $1 per share, loser gets $0
+        """
         won_up = current_price > rnd.reference_price
-        logger.debug(
-            "Simulator closed round %d (%s %s): %s "
+        logger.info(
+            "Round %d resolved (%s %s): %s "
             "(ref=$%.2f → close=$%.2f)",
             rnd.round_id, rnd.asset, rnd.timeframe,
             "UP" if won_up else "DOWN",
             rnd.reference_price, current_price,
         )
+
+        # Resolve all positions belonging to this round
+        still_open: list[OpenPosition] = []
+        for pos in self._open_positions:
+            if pos.round_id != rnd.round_id:
+                still_open.append(pos)
+                continue
+
+            # Did this position's contract outcome win?
+            if pos.direction == "up":
+                contract_won = won_up  # UP contract resolved YES
+            else:
+                contract_won = not won_up  # DOWN contract resolved YES
+
+            # Did the POSITION win? Depends on which side we bought.
+            if pos.side == "YES":
+                position_won = contract_won
+            else:  # NO
+                position_won = not contract_won
+
+            if position_won:
+                # Winner: each share pays $1
+                if pos.side == "YES":
+                    shares = pos.size / pos.entry_price if pos.entry_price > 0 else 0
+                    pnl = shares * 1.0 - pos.size  # payout - cost
+                else:
+                    no_price = 1 - pos.entry_price
+                    shares = pos.size / no_price if no_price > 0 else 0
+                    pnl = shares * 1.0 - pos.size
+                exit_price = 1.0
+            else:
+                # Loser: shares worth $0
+                pnl = -pos.size
+                exit_price = 0.0
+
+            resolved = ResolvedPosition(
+                trade_id=pos.trade_id,
+                asset=pos.asset,
+                timeframe=pos.timeframe,
+                direction=pos.direction,
+                side=pos.side,
+                entry_price=pos.entry_price,
+                size=pos.size,
+                pnl=round(pnl, 2),
+                exit_price=exit_price,
+                won=position_won,
+                close_price=current_price,
+                reference_price=rnd.reference_price,
+            )
+            self._resolved_queue.append(resolved)
+            logger.info(
+                "Position resolved: %s %s %s %s @ %.4f → %s (pnl=%+.2f)",
+                pos.asset, pos.timeframe, pos.direction, pos.side,
+                pos.entry_price,
+                "WON" if position_won else "LOST",
+                pnl,
+            )
+
+        self._open_positions = still_open
 
     # --------------------------------------------------------------
     # Pricing logic
@@ -366,80 +468,68 @@ class PolySimulator:
         }
 
     # --------------------------------------------------------------
-    # Trade simulation
+    # Position management (hold until expiry)
     # --------------------------------------------------------------
-    def simulate_trade_outcome(
+    def open_position(
         self,
+        trade_id: str,
         asset: str,
         timeframe: str,
         direction: str,
         side: str,
         entry_price: float,
         size: float,
-    ) -> tuple[float, float]:
+    ) -> bool:
         """
-        Resolve a paper trade using spread-based P&L.
+        Open a paper position that will be held until the round resolves.
 
-        Returns (pnl, exit_price).
-
-        How it works (mirrors real Polymarket trading):
-        ─────────────────────────────────────────────────
-        The bot bought a contract at the LAGGED sim price (entry_price).
-        The "true" fair value is computed from the CURRENT CEX spot
-        price directly — NOT through the deque history used by the sim
-        pricer. This ensures the edge is real: the sim is stale, the
-        bot is fast.
-
-        P&L = (exit - entry) * shares  for YES side
+        Returns True if the position was successfully opened (a round exists).
         """
-        current = self.binance.get_price(asset)
-        if not current:
-            return 0.0, entry_price
-
-        rnd = self._rounds.get(self._round_key(asset, timeframe))
+        key = self._round_key(asset, timeframe)
+        rnd = self._rounds.get(key)
         if rnd is None:
-            return 0.0, entry_price
+            logger.warning(
+                "Cannot open position: no active round for %s %s",
+                asset, timeframe,
+            )
+            return False
 
-        # Direct fair value: how far is the current price from the
-        # round's reference price?  Use a simple logistic model.
-        ref = rnd.reference_price
-        if ref <= 0:
-            return 0.0, entry_price
+        pos = OpenPosition(
+            trade_id=trade_id,
+            asset=asset,
+            timeframe=timeframe,
+            direction=direction,
+            side=side,
+            entry_price=entry_price,
+            size=size,
+            round_id=rnd.round_id,
+            round_end=rnd.end,
+            reference_price=rnd.reference_price,
+        )
+        self._open_positions.append(pos)
+        logger.info(
+            "Opened position %s: %s %s %s %s @ %.4f ($%.2f) "
+            "round %d expires in %.0fs",
+            trade_id, asset, timeframe, direction, side,
+            entry_price, size, rnd.round_id,
+            rnd.end - time.time(),
+        )
+        return True
 
-        # Normalised move: positive = above reference, negative = below
-        move = (current - ref) / ref
+    def check_resolutions(self) -> list[ResolvedPosition]:
+        """
+        Return all positions that have been resolved since the last call.
 
-        # Scale by a sensitivity factor tuned to the timeframe
-        # (shorter timeframes → sharper response)
-        sensitivity = 8.0 if timeframe == "5m" else 5.0
-        z = move * sensitivity * 100  # convert fractional to bps scale
+        The resolution loop in bot.py should call this periodically to
+        pick up positions that were closed when their round expired.
+        """
+        resolved = list(self._resolved_queue)
+        self._resolved_queue.clear()
+        return resolved
 
-        # Logistic → probability that price ends above reference
-        import math
-        prob_up = 1.0 / (1.0 + math.exp(-z))
-
-        if direction == "up":
-            fair_yes = prob_up
-        else:
-            fair_yes = 1.0 - prob_up
-
-        fair_yes = max(MIN_PRICE, min(MAX_PRICE, fair_yes))
-
-        # Execution noise
-        noise = random.gauss(0, 0.005)
-        exit_price = max(MIN_PRICE, min(MAX_PRICE, fair_yes + noise))
-
-        # Spread-based P&L
-        if side == "YES":
-            shares = size / entry_price if entry_price > 0 else 0
-            pnl = (exit_price - entry_price) * shares
-        else:
-            no_entry = 1 - entry_price
-            no_exit = 1 - exit_price
-            shares = size / no_entry if no_entry > 0 else 0
-            pnl = (no_exit - no_entry) * shares
-
-        return round(pnl, 2), round(exit_price, 4)
+    def get_open_position_count(self) -> int:
+        """Return the number of positions currently waiting for resolution."""
+        return len(self._open_positions)
 
 
 # ----------------------------------------------------------------------

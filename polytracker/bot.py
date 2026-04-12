@@ -132,6 +132,7 @@ class PolyTracker:
         self._tasks = [
             asyncio.create_task(self.binance.start(), name="binance_feed"),
             asyncio.create_task(self._trading_loop(), name="trading_loop"),
+            asyncio.create_task(self._resolution_loop(), name="resolution_loop"),
             asyncio.create_task(self._snapshot_loop(), name="snapshot_loop"),
             asyncio.create_task(self._state_loop(), name="state_publisher"),
             asyncio.create_task(
@@ -277,7 +278,7 @@ class PolyTracker:
             await asyncio.sleep(self._scan_interval)
 
     async def _execute_signal(self, sig):
-        """Execute a single trading signal."""
+        """Execute a single trading signal — position stays OPEN until expiry."""
         order = self.strategy.create_order(sig)
         result = await self.polymarket.place_order(order)
 
@@ -303,44 +304,19 @@ class PolyTracker:
             cex_price=sig.cex_price,
             polymarket_price=sig.polymarket_price,
             is_paper=is_paper,
+            status="OPEN",
         )
         self.trade_logger.log_trade(record)
 
-        # In paper mode, simulate P&L immediately
-        if is_paper:
-            # Prefer the PolySimulator's resolved pnl when available
-            if self.simulator is not None and result.pnl != 0.0:
-                simulated_pnl = result.pnl
-            else:
-                simulated_pnl = self._simulate_paper_pnl(sig)
-            self.risk.record_trade(simulated_pnl)
-            self.strategy.update_portfolio_value(
-                self.risk.state.current_portfolio_value
-            )
-            self.trade_logger.update_trade(
-                result.order_id, simulated_pnl, sig.polymarket_price
-            )
-            self._update_asset_stats(
-                sig.contract.asset,
-                sig.contract.timeframe,
-                simulated_pnl,
-                sig.edge_pct,
-            )
-            await store.log_activity(
-                "TRADE",
-                f"{sig.contract.asset} {sig.contract.timeframe} "
-                f"{sig.side} ${result.filled_size:.2f} "
-                f"edge {sig.edge_pct:.1f}% → "
-                f"{'+' if simulated_pnl >= 0 else ''}{simulated_pnl:.2f}",
-            )
-        else:
-            self.risk.record_trade(0)
-            await store.log_activity(
-                "TRADE",
-                f"{sig.contract.asset} {sig.contract.timeframe} "
-                f"{sig.side} ${result.filled_size:.2f} "
-                f"edge {sig.edge_pct:.1f}%",
-            )
+        # Track as open position in risk manager
+        self.risk.record_trade(0)
+
+        await store.log_activity(
+            "TRADE",
+            f"OPENED {sig.contract.asset} {sig.contract.timeframe} "
+            f"{sig.side} ${result.filled_size:.2f} "
+            f"edge {sig.edge_pct:.1f}% — waiting for round expiry",
+        )
 
         # Telegram alert
         try:
@@ -359,6 +335,79 @@ class PolyTracker:
         except Exception as e:
             logger.debug("Telegram alert failed: %s", e)
 
+    async def _resolution_loop(self):
+        """Check for resolved positions and record their P&L.
+
+        In paper mode, the PolySimulator holds positions until the
+        round expires, then resolves them to $1 (win) or $0 (loss).
+        This loop picks up those resolutions and updates everything.
+        """
+        while self._running:
+            try:
+                if self.simulator is not None:
+                    resolved = self.simulator.check_resolutions()
+                    for res in resolved:
+                        # Update trade log: mark CLOSED with final P&L
+                        self.trade_logger.update_trade(
+                            res.trade_id,
+                            res.pnl,
+                            res.exit_price,
+                        )
+
+                        # Record P&L in risk manager
+                        self.risk.record_trade(res.pnl)
+                        self.strategy.update_portfolio_value(
+                            self.risk.state.current_portfolio_value
+                        )
+
+                        # Track per-asset stats
+                        self._update_asset_stats(
+                            res.asset,
+                            res.timeframe,
+                            res.pnl,
+                            0.0,  # edge not stored in ResolvedPosition
+                        )
+
+                        # Activity feed
+                        outcome = "WON" if res.won else "LOST"
+                        await store.log_activity(
+                            "RESOLVED",
+                            f"{res.asset} {res.timeframe} {res.direction} "
+                            f"{res.side} → {outcome} "
+                            f"{'+'if res.pnl >= 0 else ''}{res.pnl:.2f} "
+                            f"(ref=${res.reference_price:,.2f} "
+                            f"close=${res.close_price:,.2f})",
+                        )
+
+                        # Telegram notification
+                        try:
+                            await self.telegram.alert_trade(
+                                asset=res.asset,
+                                timeframe=res.timeframe,
+                                direction=res.direction,
+                                side=res.side,
+                                size=res.size,
+                                price=res.exit_price,
+                                edge_pct=0.0,
+                                confidence=0.0,
+                                cex_price=res.close_price,
+                                is_paper=True,
+                            )
+                        except Exception:
+                            pass
+
+                        logger.info(
+                            "Position %s resolved: %s %+.2f",
+                            res.trade_id, outcome, res.pnl,
+                        )
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error("Resolution loop error: %s", e, exc_info=True)
+
+            await asyncio.sleep(2.0)  # Check every 2 seconds
+
     def _update_asset_stats(
         self, asset: str, timeframe: str, pnl: float, edge: float
     ):
@@ -375,31 +424,6 @@ class PolyTracker:
         stat["total_edge"] = stat.get("total_edge", 0) + edge
         stat["edge"] = round(stat["total_edge"] / stat["trades"], 2)
         self._asset_stats[key] = stat
-
-    def _simulate_paper_pnl(self, sig) -> float:
-        """Simulate P&L for paper trades using spread-based resolution.
-
-        P&L = (fair_value - entry_price) * shares, matching how a real
-        latency-arb trade would work: buy at the stale Polymarket price,
-        exit at the CEX-implied fair value.
-        """
-        import random
-
-        entry = sig.polymarket_price
-        fair = sig.cex_implied_prob
-        noise = random.gauss(0, 0.008)
-        exit_price = max(0.02, min(0.98, fair + noise))
-
-        if sig.side == "YES":
-            shares = sig.position_size / entry if entry > 0 else 0
-            pnl = (exit_price - entry) * shares
-        else:
-            no_entry = 1 - entry
-            no_exit = 1 - exit_price
-            shares = sig.position_size / no_entry if no_entry > 0 else 0
-            pnl = (no_exit - no_entry) * shares
-
-        return round(pnl, 2)
 
     async def _snapshot_loop(self):
         """Periodically log portfolio snapshots to DB + equity curve."""
