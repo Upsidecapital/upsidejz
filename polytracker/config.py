@@ -10,8 +10,8 @@ class TradingConfig:
     """Core trading parameters."""
 
     # Edge detection
-    min_edge_pct: float = 3.0  # Minimum edge percentage to execute
-    lag_threshold_pct: float = 3.0  # Polymarket odds lag vs CEX threshold
+    min_edge_pct: float = 10.0  # Minimum edge percentage to execute
+    lag_threshold_pct: float = 10.0  # Polymarket odds lag vs CEX threshold
     confidence_threshold: float = 0.70  # Minimum confidence score
 
     # Position sizing
