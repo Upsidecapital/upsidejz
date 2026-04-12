@@ -1,10 +1,21 @@
-"""Real-time BTC and ETH price feed from Binance WebSocket."""
+"""
+Real-time BTC and ETH price feed with multi-exchange support.
+
+Tries exchanges in order until one connects:
+  1. Binance WebSocket (international + US)
+  2. Coinbase WebSocket
+  3. Kraken WebSocket
+  4. CoinGecko REST polling (final fallback — always works)
+
+All endpoints are public and require no API keys.
+"""
 
 import asyncio
 import json
 import logging
 import ssl
 import time
+import urllib.request
 from dataclasses import dataclass
 
 import websockets
@@ -14,30 +25,34 @@ from .config import BotConfig
 
 logger = logging.getLogger(__name__)
 
-# Binance WebSocket endpoints, tried in order.
-# - Primary: international
-# - Fallback 1: Binance.US (for US-based users)
-# - Fallback 2: alternative international port
-BINANCE_WS_ENDPOINTS = [
-    "wss://stream.binance.com:9443",
-    "wss://stream.binance.com:443",
-    "wss://fstream.binance.com",
-    "wss://stream.binance.us:9443",
-]
-
 
 @dataclass
 class PriceUpdate:
-    """A single price update from Binance."""
+    """A single price update from an exchange."""
 
     symbol: str  # "BTC" or "ETH"
     price: float
-    timestamp: float  # Unix timestamp
+    timestamp: float
     volume_24h: float
 
 
+def _ssl_context() -> ssl.SSLContext:
+    """Build an SSL context, preferring certifi certs on Windows."""
+    ctx = ssl.create_default_context()
+    try:
+        import certifi
+        ctx.load_verify_locations(certifi.where())
+    except Exception:
+        pass
+    return ctx
+
+
 class BinanceFeed:
-    """Manages WebSocket connection to Binance for real-time prices."""
+    """Multi-exchange price feed with automatic failover.
+
+    Despite the class name (kept for backwards-compat with bot.py),
+    this now tries Binance -> Coinbase -> Kraken -> CoinGecko REST.
+    """
 
     SYMBOLS = {
         "btcusdt": "BTC",
@@ -53,7 +68,7 @@ class BinanceFeed:
         self._reconnect_count = 0
         self._max_reconnects = 50
         self._lock = asyncio.Lock()
-        self._active_endpoint: str = ""
+        self._active_source: str = ""
 
     @property
     def prices(self) -> dict[str, PriceUpdate]:
@@ -67,248 +82,283 @@ class BinanceFeed:
         """Register a callback for price updates: callback(PriceUpdate)."""
         self._callbacks.append(callback)
 
-    async def start(self):
-        """Start the WebSocket connection with auto-reconnect.
-
-        If WebSocket is completely unreachable after several attempts,
-        falls back to REST API polling.
-        """
-        self._running = True
-        self._reconnect_count = 0
-        while self._running and self._reconnect_count < self._max_reconnects:
+    async def _emit(self, update: PriceUpdate):
+        """Store price and notify all callbacks."""
+        async with self._lock:
+            self._prices[update.symbol] = update
+        for cb in self._callbacks:
             try:
-                await self._connect()
-            except (ConnectionClosed, ConnectionError, OSError) as e:
-                self._reconnect_count += 1
-                delay = min(
-                    self.config.ws_reconnect_delay * (2 ** (self._reconnect_count - 1)),
-                    60.0,
-                )
-                logger.warning(
-                    "Binance WS disconnected (%s), reconnecting in %.1fs "
-                    "(attempt %d/%d)",
-                    e,
-                    delay,
-                    self._reconnect_count,
-                    self._max_reconnects,
-                )
+                if asyncio.iscoroutinefunction(cb):
+                    await cb(update)
+                else:
+                    cb(update)
+            except Exception as e:
+                logger.error("Price callback error: %s", e)
 
-                # After 5 failed WS attempts, switch to REST polling
-                if self._reconnect_count >= 5:
-                    logger.warning(
-                        "WebSocket unreachable after %d attempts — "
-                        "falling back to REST API polling",
-                        self._reconnect_count,
-                    )
-                    await self._rest_poll_loop()
+    # ==================================================================
+    # Main entry point
+    # ==================================================================
+    async def start(self):
+        """Try each exchange in order; restart from top on disconnect."""
+        self._running = True
+
+        # Each entry: (human name, coroutine factory)
+        sources = [
+            ("Binance", self._connect_binance),
+            ("Coinbase", self._connect_coinbase),
+            ("Kraken", self._connect_kraken),
+            ("CoinGecko REST", self._poll_coingecko),
+        ]
+
+        while self._running:
+            for name, connect_fn in sources:
+                if not self._running:
                     return
+                try:
+                    logger.info("Trying price feed: %s", name)
+                    await connect_fn()
+                    # If connect_fn returns cleanly, we were stopped
+                    return
+                except asyncio.CancelledError:
+                    logger.info("Feed cancelled")
+                    return
+                except Exception as e:
+                    logger.warning(
+                        "%s feed failed: %s — trying next source", name, e
+                    )
 
-                await asyncio.sleep(delay)
-            except asyncio.CancelledError:
-                logger.info("Binance feed cancelled")
-                break
+            # All sources exhausted — wait and retry from top
+            logger.error(
+                "All price feeds unreachable. Retrying in 15s..."
+            )
+            await asyncio.sleep(15)
 
-        if self._reconnect_count >= self._max_reconnects:
-            logger.error("Max reconnection attempts reached for Binance WS")
+    # ==================================================================
+    # 1. Binance WebSocket
+    # ==================================================================
+    BINANCE_ENDPOINTS = [
+        "wss://stream.binance.com:9443",
+        "wss://stream.binance.com:443",
+        "wss://fstream.binance.com",
+        "wss://stream.binance.us:9443",
+    ]
 
-    async def _connect(self):
-        """Establish WebSocket connection and process messages.
-
-        Tries multiple Binance endpoints in order (international, port 443,
-        futures domain, Binance.US) so the bot works regardless of region or
-        firewall rules.
-        """
+    async def _connect_binance(self):
         streams = "/".join(f"{sym}@miniTicker" for sym in self.SYMBOLS)
+        ssl_ctx = _ssl_context()
 
-        # Build list of URLs to try. Put the configured one first.
         configured = self.config.api.binance_ws_url.rstrip("/")
         candidates = [configured]
-        for ep in BINANCE_WS_ENDPOINTS:
+        for ep in self.BINANCE_ENDPOINTS:
             if ep not in candidates:
                 candidates.append(ep)
 
-        # Permissive SSL context for Windows environments with outdated
-        # certificate bundles. We're only reading public market data.
-        ssl_ctx = ssl.create_default_context()
-        try:
-            import certifi
-            ssl_ctx.load_verify_locations(certifi.where())
-        except Exception:
-            pass  # certifi is optional
-
-        last_error: Exception | None = None
-        for base_url in candidates:
-            url = f"{base_url}/stream?streams={streams}"
+        last_err: Exception | None = None
+        for base in candidates:
+            url = f"{base}/stream?streams={streams}"
             try:
-                logger.info("Trying Binance WebSocket: %s", url)
+                logger.info("  Binance endpoint: %s", base)
                 async with websockets.connect(
-                    url,
-                    ssl=ssl_ctx,
-                    ping_interval=20,
-                    ping_timeout=10,
-                    close_timeout=5,
-                    open_timeout=10,
+                    url, ssl=ssl_ctx,
+                    ping_interval=20, ping_timeout=10,
+                    close_timeout=5, open_timeout=10,
                 ) as ws:
                     self._ws = ws
-                    self._reconnect_count = 0
-                    self._active_endpoint = base_url
-                    logger.info(
-                        "Binance WebSocket connected via %s", base_url
-                    )
-
-                    async for message in ws:
+                    self._active_source = f"Binance ({base})"
+                    logger.info("Connected to %s", self._active_source)
+                    async for msg in ws:
                         if not self._running:
-                            break
-                        await self._handle_message(message)
-                    return  # clean exit from message loop
-
+                            return
+                        await self._handle_binance(msg)
+                    return
             except (OSError, ConnectionError, asyncio.TimeoutError) as e:
-                last_error = e
-                logger.warning(
-                    "Binance endpoint %s failed: %s", base_url, e
-                )
-                continue
+                last_err = e
+                logger.debug("  %s: %s", base, e)
+        raise ConnectionError(f"All Binance endpoints failed: {last_err}")
 
-        # None of the endpoints worked — raise so the reconnect loop retries
-        raise ConnectionError(
-            f"All Binance endpoints unreachable. Last error: {last_error}"
-        )
-
-    async def _handle_message(self, raw: str):
-        """Parse and process a WebSocket message."""
+    async def _handle_binance(self, raw: str):
         try:
             data = json.loads(raw)
             payload = data.get("data", data)
-
-            symbol_raw = payload.get("s", "").lower()
-            asset = self.SYMBOLS.get(symbol_raw)
+            sym = payload.get("s", "").lower()
+            asset = self.SYMBOLS.get(sym)
             if not asset:
                 return
-
-            price = float(payload.get("c", 0))  # Close price
-            volume = float(payload.get("v", 0))  # 24h volume
-
+            price = float(payload.get("c", 0))
+            volume = float(payload.get("v", 0))
             if price <= 0:
                 return
-
-            update = PriceUpdate(
-                symbol=asset,
-                price=price,
-                timestamp=time.time(),
-                volume_24h=volume,
-            )
-
-            async with self._lock:
-                self._prices[asset] = update
-
-            for cb in self._callbacks:
-                try:
-                    if asyncio.iscoroutinefunction(cb):
-                        await cb(update)
-                    else:
-                        cb(update)
-                except Exception as e:
-                    logger.error("Price callback error: %s", e)
-
+            await self._emit(PriceUpdate(asset, price, time.time(), volume))
         except (json.JSONDecodeError, KeyError, ValueError) as e:
-            logger.debug("Failed to parse Binance message: %s", e)
+            logger.debug("Binance parse error: %s", e)
 
-    # ------------------------------------------------------------------
-    # REST API fallback (when WebSocket is blocked)
-    # ------------------------------------------------------------------
-    REST_ENDPOINTS = [
-        "https://api.binance.com",
-        "https://api1.binance.com",
-        "https://api.binance.us",
+    # ==================================================================
+    # 2. Coinbase WebSocket
+    # ==================================================================
+    async def _connect_coinbase(self):
+        url = "wss://ws-feed.exchange.coinbase.com"
+        ssl_ctx = _ssl_context()
+
+        subscribe = json.dumps({
+            "type": "subscribe",
+            "channels": [
+                {
+                    "name": "ticker",
+                    "product_ids": ["BTC-USD", "ETH-USD"],
+                }
+            ],
+        })
+
+        product_map = {"BTC-USD": "BTC", "ETH-USD": "ETH"}
+
+        logger.info("  Coinbase endpoint: %s", url)
+        async with websockets.connect(
+            url, ssl=ssl_ctx,
+            ping_interval=20, ping_timeout=10,
+            close_timeout=5, open_timeout=10,
+        ) as ws:
+            self._ws = ws
+            self._active_source = "Coinbase"
+            await ws.send(subscribe)
+            logger.info("Connected to Coinbase WebSocket")
+
+            async for msg in ws:
+                if not self._running:
+                    return
+                try:
+                    data = json.loads(msg)
+                    if data.get("type") != "ticker":
+                        continue
+                    product = data.get("product_id", "")
+                    asset = product_map.get(product)
+                    if not asset:
+                        continue
+                    price = float(data.get("price", 0))
+                    volume = float(data.get("volume_24h", 0))
+                    if price <= 0:
+                        continue
+                    await self._emit(
+                        PriceUpdate(asset, price, time.time(), volume)
+                    )
+                except (json.JSONDecodeError, KeyError, ValueError) as e:
+                    logger.debug("Coinbase parse error: %s", e)
+
+    # ==================================================================
+    # 3. Kraken WebSocket
+    # ==================================================================
+    async def _connect_kraken(self):
+        url = "wss://ws.kraken.com"
+        ssl_ctx = _ssl_context()
+
+        subscribe = json.dumps({
+            "event": "subscribe",
+            "pair": ["XBT/USD", "ETH/USD"],
+            "subscription": {"name": "ticker"},
+        })
+
+        pair_map = {
+            "XBT/USD": "BTC",
+            "BTC/USD": "BTC",
+            "ETH/USD": "ETH",
+        }
+
+        logger.info("  Kraken endpoint: %s", url)
+        async with websockets.connect(
+            url, ssl=ssl_ctx,
+            ping_interval=20, ping_timeout=10,
+            close_timeout=5, open_timeout=10,
+        ) as ws:
+            self._ws = ws
+            self._active_source = "Kraken"
+            await ws.send(subscribe)
+            logger.info("Connected to Kraken WebSocket")
+
+            async for msg in ws:
+                if not self._running:
+                    return
+                try:
+                    data = json.loads(msg)
+                    # Kraken sends arrays for ticker data:
+                    # [channelID, tickerData, channelName, pair]
+                    if not isinstance(data, list) or len(data) < 4:
+                        continue
+                    pair = data[-1]
+                    asset = pair_map.get(pair)
+                    if not asset:
+                        continue
+                    ticker = data[1]
+                    # "c" = close [price, lot_volume]
+                    price = float(ticker.get("c", [0])[0])
+                    # "v" = volume [today, last24h]
+                    vol_arr = ticker.get("v", [0, 0])
+                    volume = float(vol_arr[1]) if len(vol_arr) > 1 else 0.0
+                    if price <= 0:
+                        continue
+                    await self._emit(
+                        PriceUpdate(asset, price, time.time(), volume)
+                    )
+                except (json.JSONDecodeError, KeyError, ValueError,
+                        TypeError, IndexError) as e:
+                    logger.debug("Kraken parse error: %s", e)
+
+    # ==================================================================
+    # 4. CoinGecko REST polling (always-available fallback)
+    # ==================================================================
+    COINGECKO_URLS = [
+        "https://api.coingecko.com/api/v3/simple/price"
+        "?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_vol=true",
     ]
 
-    async def _rest_poll_loop(self):
-        """Poll Binance REST API for prices when WebSocket is unreachable.
+    async def _poll_coingecko(self):
+        ssl_ctx = _ssl_context()
+        poll_interval = 5.0  # CoinGecko free tier: ~10-30 req/min
+        id_map = {"bitcoin": "BTC", "ethereum": "ETH"}
 
-        Less efficient than WebSocket but works through most firewalls
-        since it's plain HTTPS on port 443.
-        """
-        import urllib.request
-        import ssl as _ssl
-
-        ssl_ctx = _ssl.create_default_context()
-        try:
-            import certifi
-            ssl_ctx.load_verify_locations(certifi.where())
-        except Exception:
-            pass
-
-        symbols = ["BTCUSDT", "ETHUSDT"]
-        poll_interval = 3.0  # seconds between polls
-        working_base: str | None = None
-
-        logger.info("REST polling mode active (poll every %.0fs)", poll_interval)
+        self._active_source = "CoinGecko REST"
+        logger.info("Using CoinGecko REST polling (every %.0fs)", poll_interval)
+        first = True
 
         while self._running:
-            bases = (
-                [working_base] if working_base else self.REST_ENDPOINTS
-            )
-            for base_url in bases:
-                try:
-                    url = (
-                        f"{base_url}/api/v3/ticker/price?"
-                        f"symbols=[{','.join(json.dumps(s) for s in symbols)}]"
-                    )
-                    loop = asyncio.get_event_loop()
-                    req = urllib.request.Request(
-                        url,
-                        headers={"User-Agent": "Polytracker/1.0"},
-                    )
-                    raw = await loop.run_in_executor(
-                        None,
-                        lambda: urllib.request.urlopen(
-                            req, context=ssl_ctx, timeout=8
-                        ).read(),
-                    )
-                    data = json.loads(raw)
-                    for item in data:
-                        sym_raw = item.get("symbol", "").lower()
-                        asset = self.SYMBOLS.get(sym_raw)
-                        if not asset:
-                            continue
-                        price = float(item.get("price", 0))
-                        if price <= 0:
-                            continue
-                        update = PriceUpdate(
-                            symbol=asset,
-                            price=price,
-                            timestamp=time.time(),
-                            volume_24h=0.0,
+            try:
+                url = self.COINGECKO_URLS[0]
+                loop = asyncio.get_event_loop()
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "Polytracker/1.0"}
+                )
+                raw = await loop.run_in_executor(
+                    None,
+                    lambda: urllib.request.urlopen(
+                        req, context=ssl_ctx, timeout=10
+                    ).read(),
+                )
+                data = json.loads(raw)
+                # data = {"bitcoin": {"usd": 60000, "usd_24h_vol": ...}, ...}
+                for coin_id, asset in id_map.items():
+                    info = data.get(coin_id, {})
+                    price = float(info.get("usd", 0))
+                    volume = float(info.get("usd_24h_vol", 0))
+                    if price > 0:
+                        await self._emit(
+                            PriceUpdate(asset, price, time.time(), volume)
                         )
-                        async with self._lock:
-                            self._prices[asset] = update
-                        for cb in self._callbacks:
-                            try:
-                                if asyncio.iscoroutinefunction(cb):
-                                    await cb(update)
-                                else:
-                                    cb(update)
-                            except Exception as e:
-                                logger.error("Price callback error: %s", e)
-
-                    if not working_base:
-                        logger.info(
-                            "REST fallback connected via %s", base_url
-                        )
-                    working_base = base_url
-                    break  # success, don't try other bases
-
-                except Exception as e:
-                    logger.debug("REST poll %s failed: %s", base_url, e)
-                    working_base = None
-                    continue
+                if first:
+                    logger.info("CoinGecko REST feed active")
+                    first = False
+            except Exception as e:
+                logger.warning("CoinGecko poll failed: %s", e)
 
             await asyncio.sleep(poll_interval)
 
+    # ==================================================================
+    # Shutdown
+    # ==================================================================
     async def stop(self):
         """Gracefully stop the feed."""
         self._running = False
         if self._ws:
-            await self._ws.close()
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
             self._ws = None
-        logger.info("Binance feed stopped")
+        logger.info("Price feed stopped (was: %s)", self._active_source)

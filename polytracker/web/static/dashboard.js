@@ -344,8 +344,11 @@
 
     // Status
     $("status-bot").textContent = s.bot_status;
-    $("status-binance").textContent =
-      s.prices.BTC && s.prices.ETH ? "LIVE" : "WAITING";
+    $("status-binance").textContent = s.price_source
+      ? s.price_source
+      : s.prices && (s.prices.BTC || s.prices.ETH)
+        ? "LIVE"
+        : "CONNECTING";
     $("status-polymarket").textContent =
       s.bot_status === "RUNNING" ? "LIVE" : "INIT";
 
@@ -469,8 +472,11 @@
   function renderSystemView(s) {
     $("sys-bot").textContent = s.bot_status;
     $("sys-mode").textContent = s.is_paper ? "PAPER" : "LIVE";
-    $("sys-binance").textContent =
-      s.prices && (s.prices.BTC || s.prices.ETH) ? "LIVE" : "WAITING";
+    $("sys-binance").textContent = s.price_source
+      ? s.price_source
+      : s.prices && (s.prices.BTC || s.prices.ETH)
+        ? "LIVE"
+        : "CONNECTING";
     $("sys-polymarket").textContent =
       s.bot_status === "RUNNING" ? "LIVE" : "INIT";
     $("sys-halted").textContent = s.trading_halted ? "YES" : "No";

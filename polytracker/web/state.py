@@ -67,6 +67,9 @@ class DashboardState:
     # Activity log
     activity: list[dict] = field(default_factory=list)
 
+    # Price source (which exchange is active)
+    price_source: str = ""
+
     # Timestamp
     updated_at: float = field(default_factory=time.time)
 
@@ -149,6 +152,7 @@ class StateStore:
             "open_positions": s.open_positions,
             "equity_curve": s.equity_curve,
             "activity": s.activity,
+            "price_source": s.price_source,
             "updated_at": s.updated_at,
         }
 

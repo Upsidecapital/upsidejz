@@ -456,6 +456,7 @@ class PolyTracker:
                     asset_stats=self._asset_stats,
                     recent_trades=recent,
                     open_positions=open_pos,
+                    price_source=self.binance._active_source,
                 )
             except Exception as e:
                 logger.debug("State publish error: %s", e)
